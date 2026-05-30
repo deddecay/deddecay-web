@@ -1,36 +1,52 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# deddecay official website
 
-## Getting Started
+deddecay のオフィシャルサイト。
 
-First, run the development server:
+**本番 URL**: https://deddecay.tokyo
+
+## 技術構成
+
+- Next.js 16 (App Router)
+- TypeScript
+- Tailwind CSS v4
+- microCMS（CMS）
+- Resend（メール送信）
+- Vercel（ホスティング）
+
+## ローカル起動
 
 ```bash
+npm install
+cp .env.local.example .env.local
+# .env.local を編集して各値を設定
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+→ http://localhost:3000
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 環境変数
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+`.env.local.example` を参照。本番値は `.env.local` に設定する（git 管理外）。
 
-## Learn More
+| 変数名 | 用途 |
+|---|---|
+| `MICROCMS_SERVICE_DOMAIN` | microCMS サービスドメイン |
+| `MICROCMS_API_KEY` | microCMS API キー |
+| `RESEND_API_KEY` | Resend の API キー |
+| `CONTACT_TO_EMAIL` | CONTACT フォームの受信先アドレス |
+| `CONTACT_FROM_EMAIL` | CONTACT フォームの送信元（Resend 検証済みドメイン必須） |
 
-To learn more about Next.js, take a look at the following resources:
+## Deploy
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Vercel にデプロイ済み。カスタムドメイン接続済み（Cloudflare 経由・SSL 有効）。
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+vercel --prod --yes
+```
 
-## Deploy on Vercel
+Vercel 環境変数は Settings → Environment Variables で設定する。
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## ドキュメント
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- [docs/site_spec.md](docs/site_spec.md) — サイト仕様（ページ構成・CMS設計・各機能）
+- [docs/operation_guide.md](docs/operation_guide.md) — 投稿・運用ガイド

@@ -1,65 +1,78 @@
-import Image from "next/image";
+export const revalidate = 60;
 
-export default function Home() {
+import Image from "next/image";
+import NavMenu from "./_components/NavMenu";
+import { getTopNews, getTopLives, getBiography, getDiscography } from "@/src/lib/microcms";
+import {
+  siApplemusic,
+  siSpotify,
+  siYoutube,
+  siInstagram,
+  siX,
+  siTiktok,
+} from "simple-icons";
+
+const YOUTUBE_CHANNEL = "https://www.youtube.com/@deddecay";
+
+const snsLinks = [
+  { icon: siApplemusic, href: "#",                                         external: false },
+  { icon: siSpotify,    href: "#",                                         external: false },
+  { icon: siYoutube,    href: YOUTUBE_CHANNEL,                             external: true  },
+  { icon: siInstagram,  href: "https://www.instagram.com/deddecay",        external: true  },
+  { icon: siX,          href: "https://x.com/deddecay",                    external: true  },
+  { icon: siTiktok,     href: "https://www.tiktok.com/@deddecay",          external: true  },
+].map(({ icon, href, external }) => ({ label: icon.title, href, icon, external }));
+
+export default async function Home() {
+  const [newsItems, liveItems, biography, discographyItems] = await Promise.all([getTopNews(), getTopLives(), getBiography(), getDiscography()]);
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
+    <main className="min-h-screen bg-black text-white flex flex-col items-center px-8 pt-10 pb-10 sm:pt-12 sm:pb-12">
+      <div className="w-full max-w-xs sm:max-w-sm flex flex-col items-center gap-10">
+
+        {/* Logo */}
+        <h1>
+          <Image
+            src="/logo-white.png"
+            alt="deddecay"
+            width={14999}
+            height={6101}
+            className="w-full max-w-[220px] sm:max-w-[275px] h-auto object-contain block mx-auto logo-signal"
+            priority
+          />
+        </h1>
+
+        {/* SNS Icons */}
+        <div className="flex items-center gap-4">
+          {snsLinks.map(({ label, href, icon, external }) => (
             <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+              key={label}
+              href={href}
+              aria-label={label}
+              title={label}
+              {...(external && { target: "_blank", rel: "noopener noreferrer" })}
+              className="w-10 h-10 rounded-full border border-white/30 flex items-center justify-center text-white/70 hover:text-white hover:border-white/70 transition-colors duration-200"
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+              <svg
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                className="w-4 h-4"
+                aria-hidden="true"
+              >
+                <path d={icon.path} />
+              </svg>
+            </a>
+          ))}
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+
+        {/* Navigation */}
+        <NavMenu newsItems={newsItems} liveItems={liveItems} biography={biography} discographyItems={discographyItems} />
+
+      </div>
+
+      {/* Copyright */}
+      <p className="mt-auto pt-10 text-center text-[10px] tracking-[0.2em] text-white/45 select-none">
+        Copyright© deddecay, 2026 All Rights Reserved.
+      </p>
+    </main>
   );
 }

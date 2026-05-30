@@ -1,0 +1,221 @@
+# deddecay official website — 投稿・運用ガイド
+
+> 最終更新：2026-05-28
+
+---
+
+## CMS へのアクセス
+
+microCMS の管理画面から各コンテンツを管理する。
+
+---
+
+## 投稿種別と使い分け
+
+| 種別 | API | 用途 |
+|---|---|---|
+| NEWS | entries（type=news） | お知らせ・リリース情報・告知全般 |
+| LIVE | entries（type=live） | ライブ告知 |
+| BIOGRAPHY | biography | プロフィール（1件のみ） |
+| DISCOGRAPHY | discography | 音源情報 |
+
+---
+
+## NEWS の投稿
+
+### フィールド
+
+| フィールド | 必須 | 内容 |
+|---|---|---|
+| `title` | ✅ | タイトル |
+| `type` | ✅ | `news` を選択 |
+| `body` | — | 本文（リッチテキスト） |
+| `thumbnail` | — | サムネイル画像。設定するとそのページの OGP 画像にも使われる |
+| `eventDate` | — | 表示日時を publishedAt 以外にしたい場合に設定 |
+
+### 手順
+
+1. entries API で新規作成
+2. `type` に `news` を選択
+3. `title` / `body` / `thumbnail` を入力
+4. 公開する → microCMS 標準の「公開」ボタンで公開
+
+---
+
+## LIVE の投稿
+
+### フィールド
+
+| フィールド | 必須 | 内容 |
+|---|---|---|
+| `title` | ✅ | 公演タイトル（例：「渋谷 WWW ライブ」） |
+| `type` | ✅ | `live` を選択 |
+| `eventDate` | ✅ | web画面表示日時（LIVEでは入力必須） |
+| `body` | — | 本文（下記テンプレートを使用） |
+
+### 本文テンプレート
+
+```
+2026.06.15(mon)
+
+渋谷WWW
+ライブtitle
+
+OPEN 18:00
+START 18:30
+
+ADV ¥3000
+DOOR ¥3500
+
+ACT
+○○
+○○
+
+TICKET
+https://~
+```
+
+### 手順
+
+1. entries API で新規作成
+2. `type` に `live` を選択
+3. `eventDate` に開催日時を設定
+4. `title` を入力
+5. `body` にテンプレートをコピーして内容を埋める
+6. 公開する → microCMS 標準の「公開」ボタンで公開
+
+---
+
+## BIOGRAPHY の更新
+
+biography API は 1 件のみ管理する（新規作成しない、既存の 1 件を編集する）。
+
+| フィールド | 内容 |
+|---|---|
+| `title` | アーティスト名 |
+| `photo` | プロフィール写真 |
+| `body` | プロフィール本文（リッチテキスト） |
+
+---
+
+## DISCOGRAPHY の投稿
+
+| フィールド | 必須 | 内容 |
+|---|---|---|
+| `title` | ✅ | 作品タイトル |
+| `cover` | — | ジャケット画像 |
+| `subtitle` | — | サブタイトル（例：「1st Single」） |
+| `releaseDate` | — | リリース日（表示順のソートに使用） |
+| `subscriptionUrl` | — | 配信リンク（Apple Music / Spotify 等） |
+| `buyUrl` | — | 購入リンク（BASE / bandcamp 等） |
+| `body` | — | 歌詞・クレジット・補足情報 |
+
+- `subscriptionUrl` / `buyUrl` は未入力の場合、TOP 表示では disabled になる（消えない）
+- 詳細ページの `body` が空の場合は `—` が表示される
+
+---
+
+## 新着表示（new）
+
+NEWS / LIVE 一覧（TOP・過去ログ）で、公開から7日以内の記事に日時の左へ小文字の `new` が自動表示される。
+
+- 操作不要・自動判定
+- 判定基準は `publishedAt`（公開日時）
+- 予約投稿の場合は公開解禁日時が起点
+- 7日経過後は自動で消える
+
+---
+
+## 公開・予約投稿
+
+microCMS 標準の公開機能を使用する。
+
+| 操作 | 結果 |
+|---|---|
+| 「公開」ボタン | 即時公開 |
+| 「予約投稿」設定 | 指定日時に自動公開 |
+| 「非公開」/ 下書き | サイト非表示 |
+
+### 下書き管理
+
+- 作成中：下書き状態のまま保存
+- 即時公開：「公開」ボタンで公開
+- 日時指定：microCMS の予約投稿機能で日時を設定して公開
+
+---
+
+## サイト更新の反映タイミング
+
+ISR（Incremental Static Regeneration）で 60 秒ごとに自動更新される。
+
+- CMS で保存 → 最大 60 秒後にサイトへ反映
+- 即時反映が必要な場合は Vercel ダッシュボードから「Redeploy」する
+
+---
+
+## 本番デプロイ
+
+```bash
+vercel --prod --yes
+```
+
+または GitHub と連携している場合は `main` ブランチへの push で自動デプロイされる。
+
+---
+
+## Vercel 環境変数
+
+`.env.local` は git 管理外。本番値は Vercel ダッシュボードで設定する。
+
+> Settings → Environment Variables
+
+| 変数名 | 用途 |
+|---|---|
+| `MICROCMS_SERVICE_DOMAIN` | microCMS サービスドメイン |
+| `MICROCMS_API_KEY` | microCMS API キー |
+| `RESEND_API_KEY` | Resend API キー |
+| `CONTACT_TO_EMAIL` | CONTACT フォームの受信先アドレス |
+| `CONTACT_FROM_EMAIL` | CONTACT フォームの送信元（Resend 検証済みドメイン必須） |
+
+---
+
+## 静的素材の管理（public/）
+
+サイト内で使用する静的ファイルは用途別サブディレクトリで管理する。
+
+| ディレクトリ | 用途 |
+|---|---|
+| `public/og/` | OGP 用画像。`og-default.jpg` はサイト全体のデフォルト OGP |
+| `public/ambient/` | ambient layer 用素材置き場（将来用・現在空） |
+| `public/` 直下 | ロゴ等、特定ディレクトリに属さないもの（`logo-white.png` 等） |
+
+### OGP 画像を差し替えたい場合
+
+1. 新しい画像を `public/og/` に配置
+2. `app/layout.tsx` の `metadata.openGraph.images` パスを更新
+3. デプロイ後、外部 OGP 確認ツールでキャッシュクリアして確認
+
+### ambient 素材の命名規則（将来用）
+
+形式：`種類-強度-番号`（例：`noise-soft-01.png`）
+
+---
+
+## 確認済み項目（公開可能ライン）
+
+- [x] 独自ドメイン（deddecay.tokyo）
+- [x] 本番公開（Vercel）
+- [x] microCMS 連携（NEWS / LIVE / BIOGRAPHY / DISCOGRAPHY）
+- [x] NEWS 詳細・過去ログ・前後ナビ
+- [x] LIVE 詳細・過去ログ・前後ナビ
+- [x] BIOGRAPHY TOP 表示
+- [x] DISCOGRAPHY 詳細・listen / buy リンク
+- [x] CONTACT フォーム送信・受信確認
+- [x] contentId URL 運用
+- [x] ISR（60 秒）
+- [x] 公開・予約投稿（microCMS 標準機能）
+- [x] email バリデーション
+- [x] ハニーポットスパム対策
+- [x] 固定 OGP（サイト全体）
+- [x] 動的 OGP（NEWS / LIVE 詳細ページ・thumbnail フォールバック付き）
+- [x] public/ ディレクトリ整理（og/ / ambient/ 分離）
