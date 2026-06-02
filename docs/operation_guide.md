@@ -1,6 +1,6 @@
 # deddecay official website — 投稿・運用ガイド
 
-> 最終更新：2026-06-02
+> 最終更新：2026-06-02（プレビュー機能追加）
 
 ---
 
@@ -201,6 +201,64 @@ vercel --prod --yes
 
 ---
 
+## プレビュー機能（NEWS / LIVE）
+
+下書き・予約投稿・非公開記事を公開前に確認できる。
+
+### 対応コンテンツ
+
+| コンテンツ | 対象 |
+|---|---|
+| NEWS 詳細 | ✅ |
+| LIVE 詳細 | ✅ |
+| BIOGRAPHY | — |
+| DISCOGRAPHY | — |
+
+### 事前準備（初回のみ）
+
+**1. 環境変数を設定する**
+
+`.env.local`（ローカル）と Vercel 環境変数（本番）の両方に設定する。
+
+```
+PREVIEW_SECRET=任意の文字列（推測されにくい値を使用）
+```
+
+Vercel: Settings → Environment Variables → `PREVIEW_SECRET` を追加
+
+**2. microCMS のプレビューURL を設定する**
+
+microCMS 管理画面 → entries API → API設定 → プレビューURL に以下を設定：
+
+```
+https://deddecay.tokyo/api/preview?secret=PREVIEW_SECRET の実値&type={type}&contentId={CONTENT_ID}&draftKey={DRAFT_KEY}
+```
+
+※ `{type}` `{CONTENT_ID}` `{DRAFT_KEY}` は microCMS の置換変数。管理画面の変数リストで確認する。
+
+`type` が microCMS の置換変数として使えない場合：
+
+- NEWS 用: `type=news` を固定で埋め込み
+- LIVE 用: `type=live` を固定で埋め込み
+
+それぞれのエンドポイント設定でプレビューURLを分けて設定する。
+
+### プレビュー手順
+
+1. microCMS で記事を下書き保存または予約投稿設定
+2. 対象記事の編集画面を開く
+3. 「プレビュー」ボタンを押す
+4. ブラウザで詳細ページが開き、下書き内容が表示される
+5. 確認後、microCMS に戻って必要に応じて修正・公開する
+
+### 注意事項
+
+- プレビューURLは外部に共有しない（`draftKey` が含まれるため）
+- プレビュー表示はキャッシュされない（毎回 microCMS から最新取得）
+- 通常の公開ページ表示（ISR 60秒キャッシュ）には影響しない
+
+---
+
 ## SEO / Search Console
 
 ### 実装済み（2026-06）
@@ -273,3 +331,4 @@ sitemap.xml に含まれる URL：
 - [x] public/ ディレクトリ整理（og/ / ambient/ 分離）
 - [x] robots.txt / sitemap.xml
 - [x] Google Search Console 登録・sitemap 送信
+- [x] プレビュー機能（NEWS / LIVE 詳細）

@@ -194,13 +194,14 @@ export const getLiveList = async (): Promise<Entry[]> => {
   }
 };
 
-export const getLiveById = async (contentId: string): Promise<Entry | null> => {
+export const getLiveById = async (contentId: string, draftKey?: string): Promise<Entry | null> => {
   const client = getClient();
   if (!client) return null;
   try {
     const entry = await client.getListDetail<Entry>({
       endpoint: "entries",
       contentId,
+      ...(draftKey ? { queries: { draftKey } } : {}),
     });
     const isLive = Array.isArray(entry.type) ? entry.type.includes("live") : entry.type === "live";
     if (!isLive) return null;
@@ -287,13 +288,14 @@ export const getBiography = async (): Promise<Biography | null> => {
   }
 };
 
-export const getEntryById = async (contentId: string): Promise<Entry | null> => {
+export const getEntryById = async (contentId: string, draftKey?: string): Promise<Entry | null> => {
   const client = getClient();
   if (!client) return null;
   try {
     return await client.getListDetail<Entry>({
       endpoint: "entries",
       contentId,
+      ...(draftKey ? { queries: { draftKey } } : {}),
     });
   } catch {
     return null;

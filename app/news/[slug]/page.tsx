@@ -1,5 +1,6 @@
 export const revalidate = 60;
 
+import { connection } from "next/server";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Image from "next/image";
@@ -8,6 +9,7 @@ import { getEntryById, getAdjacentEntries, formatEntryDate } from "@/src/lib/mic
 
 type Props = {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 };
 
 const BASE_URL = "https://deddecay.tokyo";
@@ -26,9 +28,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-export default async function NewsPage({ params }: Props) {
+export default async function NewsPage({ params, searchParams }: Props) {
   const { slug: contentId } = await params;
-  const entry = await getEntryById(contentId);
+  const sp = await searchParams;
+  const draftKey = typeof sp.draftKey === "string" ? sp.draftKey : undefined;
+
+  if (draftKey) await connection();
+
+  const entry = await getEntryById(contentId, draftKey);
   if (!entry) notFound();
   const { prev, next } = entry.publishedAt
     ? await getAdjacentEntries(entry.publishedAt)
