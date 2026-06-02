@@ -1,6 +1,6 @@
 # deddecay official website — 投稿・運用ガイド
 
-> 最終更新：2026-05-28
+> 最終更新：2026-06-02
 
 ---
 
@@ -201,6 +201,58 @@ vercel --prod --yes
 
 ---
 
+## SEO / Search Console
+
+### 実装済み（2026-06）
+
+| ファイル | 内容 |
+|---|---|
+| `app/sitemap.ts` | CMS から動的生成（NEWS・LIVE・DISCOGRAPHY 詳細 + 静的ページ）、1時間 revalidate |
+| `app/robots.ts` | `Allow: /`、`Sitemap:` 指定 |
+| `app/layout.tsx` | `robots: { index: true, follow: true }` |
+
+生成エンドポイント：`/sitemap.xml` `/robots.txt`
+
+sitemap.xml に含まれる URL：
+- `/`
+- `/entries?type=news`
+- `/entries?type=live`
+- `/live`
+- NEWS 詳細（全件）
+- LIVE 詳細（全件）
+- DISCOGRAPHY 詳細（全件）
+
+### Search Console 登録状況
+
+- [x] Google Search Console 登録完了
+- [x] ドメイン所有権確認完了（Cloudflare DNS 認証）
+- [x] sitemap.xml 送信完了
+- [x] トップページ インデックス登録リクエスト完了
+- [x] NEWS 詳細ページ インデックス登録リクエスト完了
+
+現状：Googleクロール待ちフェーズ（数時間〜数日、遅い場合 1〜2 週間）
+
+確認コマンド：`site:deddecay.tokyo`
+
+### 新規ページ公開後の手順（Search Console）
+
+重要なページのみ手動で登録申請する（自動クロール待ちでも可）。
+
+対象：トップページ、重要 NEWS、LIVE 詳細
+
+手順：Search Console → URL 検査 → 「インデックス登録をリクエスト」
+
+**LIVE 詳細の注意：公開前の URL は登録しない。**
+
+### 今後の検討
+
+| 項目 | 内容 | 優先度 |
+|---|---|---|
+| Google Analytics | 流入元・閲覧数・デバイス比率の確認 | 中 |
+| Bing Webmaster Tools | Bing 向けインデックス申請 | 低 |
+
+---
+
 ## 確認済み項目（公開可能ライン）
 
 - [x] 独自ドメイン（deddecay.tokyo）
@@ -219,3 +271,5 @@ vercel --prod --yes
 - [x] 固定 OGP（サイト全体）
 - [x] 動的 OGP（NEWS / LIVE 詳細ページ・thumbnail フォールバック付き）
 - [x] public/ ディレクトリ整理（og/ / ambient/ 分離）
+- [x] robots.txt / sitemap.xml
+- [x] Google Search Console 登録・sitemap 送信
