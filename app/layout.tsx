@@ -16,6 +16,7 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://deddecay.tokyo"),
   title: "deddecay",
   description: "deddecay official website",
+  robots: { index: true, follow: true },
   openGraph: {
     title: "deddecay",
     description: "deddecay official website",
