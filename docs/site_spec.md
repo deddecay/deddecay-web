@@ -193,8 +193,8 @@ Copyright
 
 | アイコン | リンク |
 |---|---|
-| Apple Music | 未設定（`#`） |
-| Spotify | 未設定（`#`） |
+| Apple Music | https://music.apple.com/jp/artist/deddecay/6773657681 |
+| Spotify | https://open.spotify.com/intl-ja/artist/2Odjvded4tky0XgSZtHssl?si=atkoQdhiRB-TeHzYqubfzg |
 | YouTube | https://www.youtube.com/@deddecay |
 | Instagram | https://www.instagram.com/deddecay |
 | X | https://x.com/deddecay |

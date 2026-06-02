@@ -15,8 +15,8 @@ import {
 const YOUTUBE_CHANNEL = "https://www.youtube.com/@deddecay";
 
 const snsLinks = [
-  { icon: siApplemusic, href: "#",                                         external: false },
-  { icon: siSpotify,    href: "#",                                         external: false },
+  { icon: siApplemusic, href: "https://music.apple.com/jp/artist/deddecay/6773657681",                                                           external: true },
+  { icon: siSpotify,    href: "https://open.spotify.com/intl-ja/artist/2Odjvded4tky0XgSZtHssl?si=atkoQdhiRB-TeHzYqubfzg",                     external: true },
   { icon: siYoutube,    href: YOUTUBE_CHANNEL,                             external: true  },
   { icon: siInstagram,  href: "https://www.instagram.com/deddecay",        external: true  },
   { icon: siX,          href: "https://x.com/deddecay",                    external: true  },
