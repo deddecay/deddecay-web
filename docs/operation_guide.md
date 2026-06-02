@@ -231,17 +231,10 @@ Vercel: Settings → Environment Variables → `PREVIEW_SECRET` を追加
 microCMS 管理画面 → entries API → API設定 → プレビューURL に以下を設定：
 
 ```
-https://deddecay.tokyo/api/preview?secret=PREVIEW_SECRET の実値&type={type}&contentId={CONTENT_ID}&draftKey={DRAFT_KEY}
+https://deddecay.tokyo/api/preview?secret=PREVIEW_SECRET の実値&contentId={CONTENT_ID}&draftKey={DRAFT_KEY}
 ```
 
-※ `{type}` `{CONTENT_ID}` `{DRAFT_KEY}` は microCMS の置換変数。管理画面の変数リストで確認する。
-
-`type` が microCMS の置換変数として使えない場合：
-
-- NEWS 用: `type=news` を固定で埋め込み
-- LIVE 用: `type=live` を固定で埋め込み
-
-それぞれのエンドポイント設定でプレビューURLを分けて設定する。
+※ `{CONTENT_ID}` `{DRAFT_KEY}` は microCMS の置換変数。`type` は不要（API側で entry.type を取得して自動判定する）。
 
 ### プレビュー手順
 
