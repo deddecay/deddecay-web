@@ -166,7 +166,7 @@ export const getTopLives = async (): Promise<Entry[]> => {
       endpoint: "entries",
       queries: {
         filters: "type[contains]live",
-        orders: "eventDate",
+        orders: "-eventDate",
         limit: 5,
       },
     });
