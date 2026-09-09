@@ -5,16 +5,21 @@ export async function GET(req: NextRequest) {
   const { searchParams, origin } = req.nextUrl;
   const secret    = searchParams.get("secret");
   const contentId = searchParams.get("contentId");
-  const draftKey  = searchParams.get("draftKey");
+  // 公開済み（下書きなし）のコンテンツでは microCMS が {DRAFT_KEY} を空文字に置換するため、
+  // 空は「下書きなし」として扱い、公開版のプレビューを許可する
+  const draftKey  = searchParams.get("draftKey") || undefined;
   const endpoint  = searchParams.get("endpoint"); // 未指定 = entries（NEWS / LIVE）
 
   if (!process.env.PREVIEW_SECRET || secret !== process.env.PREVIEW_SECRET) {
     return new NextResponse("Unauthorized", { status: 401 });
   }
 
-  if (!contentId || !draftKey) {
-    return new NextResponse("Bad Request: contentId and draftKey are required", { status: 400 });
+  if (!contentId) {
+    return new NextResponse("Bad Request: contentId is required", { status: 400 });
   }
+
+  // draftKey がある時だけ詳細ページへ引き継ぐ（無ければ通常の公開ページを表示する）
+  const draftQuery = draftKey ? `?draftKey=${draftKey}` : "";
 
   if (endpoint === "discography") {
     let release;
@@ -26,7 +31,7 @@ export async function GET(req: NextRequest) {
     if (!release) {
       return new NextResponse("Not Found", { status: 404 });
     }
-    return NextResponse.redirect(new URL(`/discography/${contentId}?draftKey=${draftKey}`, origin));
+    return NextResponse.redirect(new URL(`/discography/${contentId}${draftQuery}`, origin));
   }
 
   let entry;
@@ -43,11 +48,11 @@ export async function GET(req: NextRequest) {
   const type = Array.isArray(entry.type) ? entry.type[0] : entry.type;
 
   if (type === "news") {
-    return NextResponse.redirect(new URL(`/news/${contentId}?draftKey=${draftKey}`, origin));
+    return NextResponse.redirect(new URL(`/news/${contentId}${draftQuery}`, origin));
   }
 
   if (type === "live") {
-    return NextResponse.redirect(new URL(`/live/${contentId}?draftKey=${draftKey}`, origin));
+    return NextResponse.redirect(new URL(`/live/${contentId}${draftQuery}`, origin));
   }
 
   return new NextResponse("Bad Request: unsupported entry type", { status: 400 });

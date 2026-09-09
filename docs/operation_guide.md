@@ -261,6 +261,17 @@ https://deddecay.tokyo/api/preview?secret=PREVIEW_SECRET の実値&endpoint=disc
 ※ `endpoint` は取得先 API の指定。未指定時は `entries` として扱われるため、NEWS / LIVE 側の設定は変更不要。
 ※ `entries` 内の news / live の振り分けは API 側で `entry.type` を取得して自動判定する。
 
+### プレビューできるコンテンツの状態
+
+| 状態 | microCMS が渡す `{DRAFT_KEY}` | プレビュー結果 |
+|---|---|---|
+| 下書き（未公開） | 発行される | 下書きの内容を表示 |
+| 公開中（下書きの変更あり） | 発行される | 下書きの内容を表示 |
+| 公開中（変更なし） | 空 | 公開中の内容を表示 |
+
+`draftKey` が空の場合は公開版へフォールバックするため、どの状態でもプレビューボタンが機能する。
+公開版フォールバックでは microCMS から公開済みの内容しか取得されない。
+
 ### プレビュー手順
 
 1. microCMS で記事を下書き保存または予約投稿設定
@@ -271,6 +282,7 @@ https://deddecay.tokyo/api/preview?secret=PREVIEW_SECRET の実値&endpoint=disc
 
 ### 注意事項
 
+- プレビューURL は API 設定欄を**全消去してから貼り直す**（追記編集は `contentId=` の欠落やスペース混入の原因になる）
 - プレビューURLは外部に共有しない（`draftKey` が含まれるため）
 - DISCOGRAPHY のプレビューでは、タイトル下に `preview — album` のように作品種別が表示される（公開後は表示されない）
 - TOP の一覧には下書きは出ない（NEWS / LIVE と同じ）。確認は詳細ページで行う
