@@ -39,10 +39,13 @@ export type Biography = {
   body: string;
 };
 
+export type ReleaseType = "album" | "ep" | "single";
+
 export type DiscographyRelease = MicroCMSListContent & {
   cover?: { url: string; width: number; height: number };
   title: string;
   subtitle?: string;
+  releaseType?: ReleaseType | ReleaseType[];
   releaseDate?: string;
   subscriptionUrl?: string;
   buyUrl?: string;
@@ -78,6 +81,14 @@ export const isNewEntry = (publishedAt: string | undefined): boolean => {
 
 export const formatLiveDate = (entry: Pick<Entry, "eventDate" | "publishedAt">): string =>
   formatEntryDate(entry.eventDate ?? entry.publishedAt);
+
+// microCMS のセレクトは単一選択でも配列で返る。未設定は single 扱い
+export const resolveReleaseType = (
+  release: Pick<DiscographyRelease, "releaseType">
+): ReleaseType => {
+  const value = Array.isArray(release.releaseType) ? release.releaseType[0] : release.releaseType;
+  return value ?? "single";
+};
 
 // ── Fetch ─────────────────────────────────────────────
 
@@ -265,13 +276,17 @@ export const getDiscography = async (): Promise<DiscographyRelease[]> => {
   }
 };
 
-export const getDiscographyById = async (contentId: string): Promise<DiscographyRelease | null> => {
+export const getDiscographyById = async (
+  contentId: string,
+  draftKey?: string
+): Promise<DiscographyRelease | null> => {
   const client = getClient();
   if (!client) return null;
   try {
     return await client.getListDetail<DiscographyRelease>({
       endpoint: "discography",
       contentId,
+      ...(draftKey ? { queries: { draftKey } } : {}),
     });
   } catch {
     return null;

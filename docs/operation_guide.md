@@ -105,6 +105,7 @@ biography API は 1 件のみ管理する（新規作成しない、既存の 1 
 | `title` | ✅ | 作品タイトル |
 | `cover` | — | ジャケット画像 |
 | `subtitle` | — | サブタイトル（例：「1st Single」） |
+| `releaseType` | — | 作品種別（`album` / `ep` / `single`）。TOP のカテゴリ切替に使用 |
 | `releaseDate` | — | リリース日（表示順のソートに使用） |
 | `subscriptionUrl` | — | 配信リンク（Apple Music / Spotify 等） |
 | `buyUrl` | — | 購入リンク（BASE / bandcamp 等） |
@@ -112,6 +113,20 @@ biography API は 1 件のみ管理する（新規作成しない、既存の 1 
 
 - `subscriptionUrl` / `buyUrl` は未入力の場合、TOP 表示では disabled になる（消えない）
 - 詳細ページの `body` が空の場合は `—` が表示される
+
+### 作品種別（releaseType）
+
+TOP の DISCOGRAPHY は `ALBUM / EP` と `SINGLE` の2タブに分かれる。
+
+| 選択値 | 表示されるタブ |
+|---|---|
+| `album` | ALBUM / EP |
+| `ep` | ALBUM / EP |
+| `single` | SINGLE |
+| 未設定 | SINGLE |
+
+- 未設定でも作品が消えることはない（SINGLE 扱い）。Album / EP は明示的に選択する
+- 初期表示は `ALBUM / EP`。該当作品が1件もない間は `SINGLE` が最初に開く
 
 ---
 
@@ -211,8 +226,8 @@ vercel --prod --yes
 |---|---|
 | NEWS 詳細 | ✅ |
 | LIVE 詳細 | ✅ |
+| DISCOGRAPHY 詳細 | ✅ |
 | BIOGRAPHY | — |
-| DISCOGRAPHY | — |
 
 ### 事前準備（初回のみ）
 
@@ -228,13 +243,23 @@ Vercel: Settings → Environment Variables → `PREVIEW_SECRET` を追加
 
 **2. microCMS のプレビューURL を設定する**
 
-microCMS 管理画面 → entries API → API設定 → プレビューURL に以下を設定：
+プレビューURL は API ごとに個別に設定する。
+
+**entries API（NEWS / LIVE）** → API設定 → プレビューURL：
 
 ```
 https://deddecay.tokyo/api/preview?secret=PREVIEW_SECRET の実値&contentId={CONTENT_ID}&draftKey={DRAFT_KEY}
 ```
 
-※ `{CONTENT_ID}` `{DRAFT_KEY}` は microCMS の置換変数。`type` は不要（API側で entry.type を取得して自動判定する）。
+**discography API** → API設定 → プレビューURL：
+
+```
+https://deddecay.tokyo/api/preview?secret=PREVIEW_SECRET の実値&endpoint=discography&contentId={CONTENT_ID}&draftKey={DRAFT_KEY}
+```
+
+※ `{CONTENT_ID}` `{DRAFT_KEY}` は microCMS の置換変数。
+※ `endpoint` は取得先 API の指定。未指定時は `entries` として扱われるため、NEWS / LIVE 側の設定は変更不要。
+※ `entries` 内の news / live の振り分けは API 側で `entry.type` を取得して自動判定する。
 
 ### プレビュー手順
 
@@ -247,6 +272,8 @@ https://deddecay.tokyo/api/preview?secret=PREVIEW_SECRET の実値&contentId={CO
 ### 注意事項
 
 - プレビューURLは外部に共有しない（`draftKey` が含まれるため）
+- DISCOGRAPHY のプレビューでは、タイトル下に `preview — album` のように作品種別が表示される（公開後は表示されない）
+- TOP の一覧には下書きは出ない（NEWS / LIVE と同じ）。確認は詳細ページで行う
 - プレビュー表示はキャッシュされない（毎回 microCMS から最新取得）
 - 通常の公開ページ表示（ISR 60秒キャッシュ）には影響しない
 
@@ -324,4 +351,4 @@ sitemap.xml に含まれる URL：
 - [x] public/ ディレクトリ整理（og/ / ambient/ 分離）
 - [x] robots.txt / sitemap.xml
 - [x] Google Search Console 登録・sitemap 送信
-- [x] プレビュー機能（NEWS / LIVE 詳細）
+- [x] プレビュー機能（NEWS / LIVE / DISCOGRAPHY 詳細）

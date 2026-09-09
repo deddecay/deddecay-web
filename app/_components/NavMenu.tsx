@@ -1,16 +1,24 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { Fragment, useState, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import ContactForm from "./ContactForm";
-import { isNewEntry, type Entry, type Biography, type DiscographyRelease } from "@/src/lib/microcms";
+import { isNewEntry, resolveReleaseType, type Entry, type Biography, type DiscographyRelease } from "@/src/lib/microcms";
 import { BIOGRAPHY } from "@/src/data/biography";
 
 // ── Types ────────────────────────────────────────────
 
 type Section = "news" | "live" | "biography" | "discography" | "contact";
+
+// DISCOGRAPHY のカテゴリ切替（表示名と内部値は分離）
+type DiscoTab = "albumEp" | "single";
+
+const DISCO_TABS: { key: DiscoTab; label: string }[] = [
+  { key: "albumEp", label: "ALBUM / EP" },
+  { key: "single",  label: "SINGLE" },
+];
 
 // ── Styles ───────────────────────────────────────────
 
@@ -42,10 +50,21 @@ const formatDate = (publishedAt: string | undefined) =>
         .replace(/\//g, ".")
     : "";
 
+const matchesDiscoTab = (item: DiscographyRelease, tab: DiscoTab) => {
+  const releaseType = resolveReleaseType(item);
+  return tab === "albumEp"
+    ? releaseType === "album" || releaseType === "ep"
+    : releaseType === "single";
+};
+
 // ── Component ────────────────────────────────────────
 
 export default function NavMenu({ newsItems, liveItems, biography, discographyItems }: Props) {
   const [open, setOpen] = useState<Section | null>(null);
+  // ALBUM / EP が0件のうちは SINGLE から開始する
+  const [discoTab, setDiscoTab] = useState<DiscoTab>(() =>
+    discographyItems.some((item) => matchesDiscoTab(item, "albumEp")) ? "albumEp" : "single"
+  );
   const itemRefs    = useRef<Partial<Record<Section, HTMLLIElement>>>({});
   const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -165,9 +184,29 @@ export default function NavMenu({ newsItems, liveItems, biography, discographyIt
 
       case "discography": {
         if (discographyItems.length > 0) {
+          const items = discographyItems.filter((item) => matchesDiscoTab(item, discoTab));
           return (
             <div className="mt-5 flex flex-col gap-4 w-full px-2">
-              {discographyItems.map((item) => (
+              {/* カテゴリ切替 */}
+              <div className="flex items-center justify-center gap-3">
+                {DISCO_TABS.map(({ key, label }, i) => (
+                  <Fragment key={key}>
+                    {i > 0 && (
+                      <span className="text-[10px] text-white/20 select-none">/</span>
+                    )}
+                    <button
+                      onClick={() => setDiscoTab(key)}
+                      aria-pressed={discoTab === key}
+                      className={`text-[10px] tracking-[0.25em] transition-colors duration-150
+                        ${discoTab === key ? "text-white/85" : "text-white/35 hover:text-white/65"}`}
+                    >
+                      {label}
+                    </button>
+                  </Fragment>
+                ))}
+              </div>
+
+              {items.map((item) => (
                 <div key={item.id} className="flex items-start gap-3 w-full">
                   <Link href={`/discography/${item.id}`} className="flex-shrink-0">
                     {item.cover ? (
@@ -208,6 +247,12 @@ export default function NavMenu({ newsItems, liveItems, biography, discographyIt
                   </div>
                 </div>
               ))}
+
+              {items.length === 0 && (
+                <p className="text-[10px] tracking-[0.25em] text-white/30 text-center select-none">
+                  COMING SOON
+                </p>
+              )}
             </div>
           );
         }

@@ -1,17 +1,24 @@
 export const revalidate = 60;
 
+import { connection } from "next/server";
 import { notFound } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
-import { getDiscographyById } from "@/src/lib/microcms";
+import { getDiscographyById, resolveReleaseType } from "@/src/lib/microcms";
 
 type Props = {
   params: Promise<{ contentId: string }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 };
 
-export default async function DiscographyDetailPage({ params }: Props) {
+export default async function DiscographyDetailPage({ params, searchParams }: Props) {
   const { contentId } = await params;
-  const release = await getDiscographyById(contentId);
+  const sp = await searchParams;
+  const draftKey = typeof sp.draftKey === "string" ? sp.draftKey : undefined;
+
+  if (draftKey) await connection();
+
+  const release = await getDiscographyById(contentId, draftKey);
   if (!release) notFound();
 
   return (
@@ -45,6 +52,12 @@ export default async function DiscographyDetailPage({ params }: Props) {
             {release.subtitle && (
               <span className="text-[10px] tracking-widest text-white/45">
                 {release.subtitle}
+              </span>
+            )}
+            {/* プレビュー時のみ作品種別を確認できるようにする（公開表示は変更しない） */}
+            {draftKey && (
+              <span className="text-[10px] tracking-widest text-white/30">
+                preview — {resolveReleaseType(release)}
               </span>
             )}
           </header>

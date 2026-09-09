@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getEntryById } from "@/src/lib/microcms";
+import { getEntryById, getDiscographyById } from "@/src/lib/microcms";
 
 export async function GET(req: NextRequest) {
   const { searchParams, origin } = req.nextUrl;
   const secret    = searchParams.get("secret");
   const contentId = searchParams.get("contentId");
   const draftKey  = searchParams.get("draftKey");
+  const endpoint  = searchParams.get("endpoint"); // 未指定 = entries（NEWS / LIVE）
 
   if (!process.env.PREVIEW_SECRET || secret !== process.env.PREVIEW_SECRET) {
     return new NextResponse("Unauthorized", { status: 401 });
@@ -13,6 +14,19 @@ export async function GET(req: NextRequest) {
 
   if (!contentId || !draftKey) {
     return new NextResponse("Bad Request: contentId and draftKey are required", { status: 400 });
+  }
+
+  if (endpoint === "discography") {
+    let release;
+    try {
+      release = await getDiscographyById(contentId, draftKey);
+    } catch {
+      return new NextResponse("Internal Server Error", { status: 500 });
+    }
+    if (!release) {
+      return new NextResponse("Not Found", { status: 404 });
+    }
+    return NextResponse.redirect(new URL(`/discography/${contentId}?draftKey=${draftKey}`, origin));
   }
 
   let entry;

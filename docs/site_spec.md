@@ -133,6 +133,7 @@ NEWS と LIVE を共通管理する。
 |---|---|---|
 | `title` | テキスト | 作品タイトル |
 | `subtitle` | テキスト | サブタイトル（任意） |
+| `releaseType` | セレクト | 作品種別 `album` / `ep` / `single`（任意・未設定は `single` 扱い） |
 | `cover` | 画像 | ジャケット画像 |
 | `releaseDate` | 日時 | リリース日（ソート用） |
 | `subscriptionUrl` | テキスト | 配信リンク（任意） |
@@ -273,11 +274,19 @@ Copyright
 
 ## DISCOGRAPHY 仕様
 
-### TOP 表示（3カラム）
+### TOP 表示
 
 ```
+DISCOGRAPHY
+ALBUM / EP  /  SINGLE          ← カテゴリ切替
 [ジャケット] タイトル / サブタイトル    listen / buy
 ```
+
+- カテゴリ切替は `releaseType` によるクライアント側フィルタ（取得処理・並び順は変更しない）
+  - `ALBUM / EP` タブ → `album` / `ep`
+  - `SINGLE` タブ → `single`（`releaseType` 未設定もここに入る）
+- 初期タブは `ALBUM / EP`。該当作品が0件の場合のみ `SINGLE` から開始する
+- 選択中カテゴリが0件の場合は `COMING SOON` を表示
 
 - cover・title・subtitle クリックで詳細ページへ
 - `subscriptionUrl` / `buyUrl` は外部リンク（`target="_blank" rel="noopener noreferrer"`）
@@ -288,6 +297,7 @@ Copyright
 - cover（全幅）/ タイトル / サブタイトル
 - listen / buy リンク（URL 未設定時は非表示）
 - body（歌詞・クレジット等）、body が空の場合は `—`
+- `?draftKey=` 付きのプレビュー時のみ `preview — {releaseType}` を表示（公開表示では出ない）
 
 ---
 
