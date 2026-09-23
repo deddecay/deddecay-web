@@ -206,6 +206,9 @@ export default function NavMenu({ newsItems, liveItems, biography, discographyIt
                 ))}
               </div>
 
+              {/* 作品一覧：パネル上限（max-h-80 / sm:max-h-96）から mt-5・切替行・gap 分を引いた高さでスクロール */}
+              {items.length > 0 && (
+              <div className="flex flex-col gap-4 w-full max-h-[260px] sm:max-h-[324px] overflow-y-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {items.map((item) => (
                 <div key={item.id} className="flex items-start gap-3 w-full">
                   <Link href={`/discography/${item.id}`} className="flex-shrink-0">
@@ -247,6 +250,8 @@ export default function NavMenu({ newsItems, liveItems, biography, discographyIt
                   </div>
                 </div>
               ))}
+              </div>
+              )}
 
               {items.length === 0 && (
                 <p className="text-[10px] tracking-[0.25em] text-white/30 text-center select-none">
