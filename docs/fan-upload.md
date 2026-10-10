@@ -39,6 +39,22 @@ LIVE の選択肢は microCMS の `entries`（type=live）が唯一の正本。�
 
 必須が欠けている場合、API は 503（「準備中」）を返す。
 
+## Google OAuth トークンの発行・更新
+
+保存先アカウントのリフレッシュトークンは `scripts/dd-upload-oauth.mjs` で発行する（ローカルで手動実行）。
+
+```
+node scripts/dd-upload-oauth.mjs --login-hint <保存先Googleアカウント> [--targets production,preview] [--no-deliver]
+```
+
+- OAuth クライアント JSON は **repository の外**に置く（既定: `/Users/hayato/site/secrets/deddecay/dd-upload/google-oauth-client.json`、
+  環境変数 `DD_UPLOAD_OAUTH_CLIENT_JSON` で変更可）。ファイル権限が 600 でなければ中断する。JSON・トークンは Git に入れない
+- ブラウザで Google の認証画面が開く。保存先アカウントで `drive.file` に同意する（5 分以内）
+- 取得したリフレッシュトークンは画面・ログ・ファイルに出さず、Vercel CLI の標準入力へ直接渡す（`--no-deliver` なら保存しない）
+- 現在の OAuth アプリは「テスト」状態（内部運用のため本番公開しない方針）。**テスト状態のリフレッシュトークンは約 7 日で失効する可能性がある**
+  ため、DD UPLOAD の保存が失敗する（502）ようになったら、このスクリプトを再実行して更新する
+- Production と Preview はそれぞれ別のトークンになる（どちらも有効）
+
 ## セキュリティ境界
 
 - Drive のフォルダ・ファイルは共有設定を一切変更しない（オーナーのみ）。投稿者に渡るのは単一ファイル用のアップロード URL のみ
