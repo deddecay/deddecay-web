@@ -6,8 +6,8 @@ import FanUploadForm from "../_components/FanUploadForm";
 import { getAllLives, formatLiveDate } from "@/src/lib/microcms";
 
 export const metadata: Metadata = {
-  title: "DD UPLOAD | deddecay",
-  description: "deddecayへ動画・写真・ファンアートなどを送る公式アップロード窓口",
+  title: "Fan moments | deddecay",
+  description: "deddecayのライブで撮影した写真や動画をアップロードしてください！",
   robots: { index: false, follow: false },
 };
 
@@ -34,9 +34,11 @@ export default async function FanUploadPage({ searchParams }: Props) {
         </Link>
 
         <header className="flex flex-col gap-2">
-          <h1 className="text-sm tracking-[0.2em] text-white/90">DD UPLOAD</h1>
+          <h1 className="text-sm tracking-[0.2em] text-white/90">Fan moments</h1>
           <p className="text-[11px] leading-relaxed text-white/55">
-            deddecay へ、動画・写真・ファンアートなどを送ってください。LIVEで撮ったものは、過去の公演の分も受け付けています。
+            deddecayのライブで撮影した写真や動画をアップロードしてください！
+            <br />
+            SNS等での使用を目的としています。
           </p>
         </header>
 

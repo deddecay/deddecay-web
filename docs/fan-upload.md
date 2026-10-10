@@ -2,8 +2,10 @@
 
 deddecay へ動画・写真・ファンアート等を送る公式アップロード窓口（URL: `/upload`）。保存先は Google Drive（非公開）。
 
-> 名称: UI 上の正式表示名は「DD UPLOAD」。内部識別子（`src/lib/fan-upload/`、`/api/fan-upload/*`、`FAN_UPLOAD_*` 環境変数、本ファイル名）は
-> 表示名と分離しており、`fan-upload` のまま。表示名・URL・メール件名・Drive のルートフォルダ名に DD UPLOAD を使う。
+> 名称: ユーザー向けの表示名は「Fan moments」（トップのナビ、ページの見出し・タブ名、案内文、完了画面）。URL は `/upload`。
+> 内部識別子（`src/lib/fan-upload/`、`/api/fan-upload/*`、`FAN_UPLOAD_*` 環境変数、R2 バケット名、本ファイル名）は表示名と分離しており、
+> `fan-upload` のまま。運営側（管理者向け）の「通知メールの件名 `[DD UPLOAD]`」と「Drive のルートフォルダ名 `DD UPLOAD`」は、
+> 運用の識別用としてそのまま残している。
 
 ## 仕組み
 
