@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import FanUploadForm from "../_components/FanUploadForm";
 import { getAllLives, formatLiveDate } from "@/src/lib/microcms";
+import { readLimits } from "@/src/lib/fan-upload/service";
 
 export const metadata: Metadata = {
   title: "Fan moments | deddecay",
@@ -42,7 +43,12 @@ export default async function FanUploadPage({ searchParams }: Props) {
           </p>
         </header>
 
-        <FanUploadForm lives={lives} initialLiveId={typeof live === "string" ? live : undefined} />
+        {/* 上限はサーバーが実際に適用している値（環境変数での変更に追従）を渡す */}
+        <FanUploadForm
+          lives={lives}
+          initialLiveId={typeof live === "string" ? live : undefined}
+          limits={readLimits()}
+        />
       </div>
     </main>
   );

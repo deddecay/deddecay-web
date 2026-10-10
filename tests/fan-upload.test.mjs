@@ -50,6 +50,22 @@ test("サイズ・件数の上限", () => {
   assert.deepEqual(ok, { ok: true, totalBytes: 5 });
 });
 
+test("上限はサーバーが渡した値で判定される（選択時の警告・投稿ボタン制御の根拠）", () => {
+  const limits = { maxFiles: 2, maxFileBytes: 1 * GIB, maxPostBytes: 1.5 * GIB };
+  const f = (name, size) => ({ name, size, type: "" });
+  // 範囲内
+  assert.equal(checkDeclaredFiles([f("a.jpg", GIB / 2), f("b.mp4", GIB / 2)], limits).ok, true);
+  // ファイル数超過 → 削除して2件に戻せば通る
+  assert.equal(checkDeclaredFiles([f("a.jpg", 1), f("b.jpg", 1), f("c.jpg", 1)], limits).ok, false);
+  assert.equal(checkDeclaredFiles([f("a.jpg", 1), f("b.jpg", 1)], limits).ok, true);
+  // 1ファイル超過
+  assert.equal(checkDeclaredFile(f("big.mp4", GIB + 1), limits).ok, false);
+  assert.equal(checkDeclaredFile(f("big.mp4", GIB), limits).ok, true);
+  // 合計超過（個々は範囲内）→ 1件削除して戻せば通る
+  assert.equal(checkDeclaredFiles([f("a.mp4", GIB), f("b.mp4", GIB)], limits).ok, false);
+  assert.equal(checkDeclaredFiles([f("a.mp4", GIB)], limits).ok, true);
+});
+
 test("先頭バイト検証 (magic)", () => {
   const mp4 = new Uint8Array([0, 0, 0, 0x20, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d]);
   const jpg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10]);

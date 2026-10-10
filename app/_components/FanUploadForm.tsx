@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ACCEPT_ATTRIBUTE,
-  DEFAULT_LIMITS,
   FIELD_LIMITS,
+  FORMATS,
   GIB,
-  checkDeclaredFiles,
+  checkDeclaredFile,
+  extensionOf,
   formatBytes,
+  type UploadLimits,
 } from "@/src/lib/fan-upload/policy";
 import { UploadFatalError, uploadFile } from "@/src/lib/fan-upload/client-upload";
 
@@ -16,6 +18,8 @@ export type LiveOption = { id: string; label: string };
 type Props = {
   lives: LiveOption[];
   initialLiveId?: string;
+  // サーバーが実際に適用している上限（ページから渡す）
+  limits: UploadLimits;
 };
 
 type Phase = "idle" | "uploading" | "completing" | "done";
@@ -60,7 +64,10 @@ const buttonBase =
 
 const fileSignature = (files: File[]) => files.map((f) => `${f.name}:${f.size}:${f.lastModified}`).join("|");
 
-export default function FanUploadForm({ lives, initialLiveId }: Props) {
+// 同じファイルを重複して選ばないための識別子
+const fileKey = (f: File) => `${f.name}:${f.size}:${f.lastModified}`;
+
+export default function FanUploadForm({ lives, initialLiveId, limits }: Props) {
   const [kind, setKind] = useState<"" | "live" | "other">(
     initialLiveId && lives.some((l) => l.id === initialLiveId) ? "live" : ""
   );
@@ -157,9 +164,32 @@ export default function FanUploadForm({ lives, initialLiveId }: Props) {
   }, [phase]);
 
   // ── 入力検証 ───────────────────────────────────────
-  const fileCheck = files.length
-    ? checkDeclaredFiles(files.map((f) => ({ name: f.name, size: f.size, type: f.type })))
-    : null;
+  // 選択の時点で判定できるサーバー側の制約（ファイル数・1ファイル・合計・形式）だけを見る
+  const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
+  const maxFileGb = Math.floor(limits.maxFileBytes / GIB);
+  const maxPostGb = Math.floor(limits.maxPostBytes / GIB);
+  // ファイルごとの問題（形式・サイズ・空ファイル）。行に表示する
+  const rowProblems = files.map((f) => {
+    const check = checkDeclaredFile({ name: f.name, size: f.size, type: f.type }, limits);
+    return check.ok ? null : check.reason;
+  });
+  const overCount = files.length > limits.maxFiles;
+  const overTotal = totalBytes > limits.maxPostBytes;
+  const hasRowProblem = rowProblems.some((p) => p !== null);
+  const filesOk = files.length > 0 && !overCount && !overTotal && !hasRowProblem;
+  // 写真・動画・音声の件数
+  const kindCounts = { image: 0, video: 0, audio: 0 };
+  for (const f of files) {
+    const rule = FORMATS[extensionOf(f.name)];
+    if (rule) kindCounts[rule.kind]++;
+  }
+  const kindSummary = [
+    kindCounts.image > 0 ? `写真${kindCounts.image}` : "",
+    kindCounts.video > 0 ? `動画${kindCounts.video}` : "",
+    kindCounts.audio > 0 ? `音声${kindCounts.audio}` : "",
+  ]
+    .filter(Boolean)
+    .join("・");
 
   const targetReady = kind === "other" || (kind === "live" && liveId !== "");
   const busy = phase === "uploading" || phase === "completing";
@@ -167,17 +197,34 @@ export default function FanUploadForm({ lives, initialLiveId }: Props) {
     !busy &&
     targetReady &&
     consent &&
-    files.length > 0 &&
-    fileCheck?.ok === true &&
+    filesOk &&
     (turnstileToken !== "" || resumable) &&
     SITE_KEY !== undefined;
 
-  const onPickFiles = (list: FileList | null) => {
+  // ファイル構成が変わったら、途中まで送ったセッションは使えない。
+  // Turnstile のトークンは 1 回しか使えないので、セッションがあった場合は取り直す
+  const invalidateSession = () => {
+    if (sessionRef.current) resetTurnstile();
     sessionRef.current = null;
     setResumable(false);
     setProgress([]);
     setError("");
-    setFiles(list ? Array.from(list) : []);
+  };
+
+  // 選択は追加方式（同じファイルは重複させない）
+  const onPickFiles = (list: FileList | null) => {
+    const picked = list ? Array.from(list) : [];
+    if (picked.length === 0) return;
+    invalidateSession();
+    setFiles((prev) => {
+      const known = new Set(prev.map(fileKey));
+      return [...prev, ...picked.filter((f) => !known.has(fileKey(f)))];
+    });
+  };
+
+  const removeFile = (index: number) => {
+    invalidateSession();
+    setFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
   // ── 送信 ──────────────────────────────────────────
@@ -284,9 +331,8 @@ export default function FanUploadForm({ lives, initialLiveId }: Props) {
     );
   }
 
-  const total = files.reduce((sum, f) => sum + f.size, 0);
   const uploaded = progress.reduce((sum, p) => sum + p, 0);
-  const percent = total > 0 ? Math.min(100, Math.floor((uploaded / total) * 100)) : 0;
+  const percent = totalBytes > 0 ? Math.min(100, Math.floor((uploaded / totalBytes) * 100)) : 0;
 
   return (
     <div className="flex flex-col gap-5 w-full">
@@ -345,24 +391,64 @@ export default function FanUploadForm({ lives, initialLiveId }: Props) {
           multiple
           accept={ACCEPT_ATTRIBUTE}
           disabled={busy}
-          onChange={(e) => onPickFiles(e.target.files)}
+          onChange={(e) => {
+            onPickFiles(e.target.files);
+            // 同じファイルを削除してから選び直せるように、選択状態を空に戻す
+            e.target.value = "";
+          }}
           className="block w-full text-xs text-white/70 file:mr-3 file:rounded-sm file:border file:border-white/30 file:bg-transparent file:px-3 file:py-2 file:text-[10px] file:tracking-widest file:text-white/70"
         />
         <span className="text-[10px] text-white/35 leading-relaxed">
-          1回 {DEFAULT_LIMITS.maxFiles} ファイルまで / 1ファイル {Math.floor(DEFAULT_LIMITS.maxFileBytes / GIB)}GB まで。
+          1回 {limits.maxFiles} ファイルまで / 1ファイル {maxFileGb}GB まで / 合計 {maxPostGb}GB まで。
           大きな動画は Wi-Fi で、送信が終わるまで画面を開いたままにしてください。
         </span>
         {files.length > 0 && (
-          <ul className="flex flex-col gap-1 pt-1">
-            {files.map((f, i) => (
-              <li key={`${f.name}-${i}`} className="flex justify-between gap-3 text-[10px] text-white/55">
-                <span className="truncate">{f.name}</span>
-                <span className="flex-shrink-0">{formatBytes(f.size)}</span>
-              </li>
-            ))}
-          </ul>
+          <>
+            {/* 選択中のファイル数・内訳・合計容量（追加・削除で即時に更新） */}
+            <p className="pt-1 text-[11px] tracking-wider text-white/70" aria-live="polite">
+              {files.length}ファイル / 合計 {formatBytes(totalBytes)}
+              {kindSummary && <span className="text-white/45">（{kindSummary}）</span>}
+            </p>
+            <ul className="flex flex-col">
+              {files.map((f, i) => (
+                <li
+                  key={fileKey(f)}
+                  className="flex items-center justify-between gap-2 border-b border-white/10 py-1 text-[10px]"
+                >
+                  <div className="min-w-0 flex flex-col">
+                    <span className={`truncate ${rowProblems[i] ? "text-red-400/80" : "text-white/55"}`}>{f.name}</span>
+                    {rowProblems[i] && <span className="text-red-400/70">{rowProblems[i]}</span>}
+                  </div>
+                  <span className="flex-shrink-0 text-white/55">{formatBytes(f.size)}</span>
+                  {/* タップしやすいよう 40px 四方の当たり判定を確保（行の高さは増やさない） */}
+                  <button
+                    type="button"
+                    aria-label={`${f.name} を選択から外す`}
+                    disabled={busy}
+                    onClick={() => removeFile(i)}
+                    className="-my-2 -mr-2 flex h-10 w-10 flex-shrink-0 items-center justify-center text-sm leading-none text-white/55 hover:text-white/90 active:text-white disabled:pointer-events-none disabled:opacity-30"
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {/* 上限を超えている間は警告を出し、「投稿する」を押せなくする。削除して範囲内に戻ると自動で消える */}
+            {(overCount || overTotal || hasRowProblem) && (
+              <div className="flex flex-col gap-0.5 text-[10px] leading-relaxed text-red-400/80" role="alert">
+                {overCount && (
+                  <span>1回の投稿は{limits.maxFiles}ファイルまでです。ファイルを削除してください。</span>
+                )}
+                {overTotal && (
+                  <span>
+                    アップロード可能な容量（合計{maxPostGb}GBまで）を超えています。ファイルを削除してください。
+                  </span>
+                )}
+                {hasRowProblem && <span>送信できないファイルがあります。該当のファイルを削除してください。</span>}
+              </div>
+            )}
+          </>
         )}
-        {fileCheck && !fileCheck.ok && <span className="text-[10px] text-red-400/80">{fileCheck.reason}</span>}
       </div>
 
       {/* 投稿者の個人情報（名前・メール等）は求めない。メッセージは任意 */}
