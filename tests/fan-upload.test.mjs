@@ -80,10 +80,15 @@ test("ファイル名・フォルダ名のサニタイズ", () => {
 });
 
 test("テキスト入力の検証", () => {
-  assert.equal(normalizeTextFields({ name: "  ", email: "", message: "" }).ok, false);
-  assert.equal(normalizeTextFields({ name: "a", email: "bad", message: "" }).ok, false);
-  assert.equal(normalizeTextFields({ name: "a", email: "", message: "x".repeat(1001) }).ok, false);
-  assert.equal(normalizeTextFields({ name: "a", email: "a@b.co", message: "hi" }).ok, true);
+  // メッセージは任意。空でもよい
+  assert.deepEqual(normalizeTextFields({}), { ok: true, value: { message: "" } });
+  assert.deepEqual(normalizeTextFields({ message: "  hi  " }), { ok: true, value: { message: "hi" } });
+  assert.equal(normalizeTextFields({ message: "x".repeat(1001) }).ok, false);
+  // 名前・メール等が送られてきても読み捨てる（値に含めない）
+  assert.deepEqual(normalizeTextFields({ name: "a", email: "a@b.co", message: "hi" }), {
+    ok: true,
+    value: { message: "hi" },
+  });
 });
 
 // ── token ──────────────────────────────────────────────
@@ -243,11 +248,8 @@ const makeDeps = (over = {}) => {
 const validBody = (over = {}) => ({
   kind: "live",
   liveId: "live-1",
-  name: "ファン太郎",
-  email: "fan@example.com",
   message: "最高でした",
   consent: true,
-  creditOk: true,
   turnstileToken: "good",
   files: [
     { name: "movie.mov", size: 1000, type: "video/quicktime" },
@@ -268,11 +270,39 @@ test("init: LIVE 投稿は公演情報(正本)から自動フォルダ分類さ�
   assert.equal(state.sessions[0].mimeType, "video/quicktime");
   assert.equal(state.sessions[0].appProperties.postId, res.body.postId);
   assert.equal(state.sessions[0].appProperties.target, "live-1");
-  assert.match(state.sessions[0].name, /^20261010-150000_ファン太郎_1_movie\.mov$/); // JST
+  assert.match(state.sessions[0].name, /^20261010-150000_1_movie\.mov$/); // JST。投稿者名は含まない
   // クライアントへ返すのはセッションURLのみ（Drive のフォルダ ID・認証情報を含まない）
   const serialized = JSON.stringify(res.body);
   assert.ok(!serialized.includes("folder-1"));
   assert.ok(!serialized.includes(SECRET));
+});
+
+test("init: 投稿者の個人情報は要求も保存もしない（送られても読み捨てる）", async () => {
+  const { deps, state } = makeDeps();
+  // 名前・メール・クレジット可否が不要になったので、無くても通る
+  const res = await handleInit(validBody(), ctx, deps);
+  assert.equal(res.status, 200);
+  // 古いクライアントが名前・メールを送ってきても、ファイル名・説明欄・メタデータに残さない
+  const legacy = makeDeps();
+  const res2 = await handleInit(
+    validBody({ name: "ファン太郎", email: "fan@example.com", creditOk: true }),
+    ctx,
+    legacy.deps
+  );
+  assert.equal(res2.status, 200);
+  for (const s of [...state.sessions, ...legacy.state.sessions]) {
+    const dump = JSON.stringify(s);
+    assert.ok(!dump.includes("ファン太郎"));
+    assert.ok(!dump.includes("fan@example.com"));
+    assert.ok(!dump.includes("投稿者"));
+    assert.ok(!dump.includes("メール:"));
+    assert.ok(!dump.includes("クレジット"));
+  }
+  // メッセージは任意で、あれば説明欄に残る
+  assert.ok(state.sessions[0].description.includes("最高でした"));
+  const noMessage = makeDeps();
+  assert.equal((await handleInit(validBody({ message: "" }), ctx, noMessage.deps)).status, 200);
+  assert.ok(!noMessage.state.sessions[0].description.includes("メッセージ:"));
 });
 
 test("init: その他投稿は OTHER/年-月 に保存", async () => {
@@ -292,7 +322,7 @@ test("init: 拒否条件 (origin / consent / turnstile / live / 形式 / 容量 
   assert.equal((await run(validBody({ liveId: "nope" }))).status, 400);
   assert.equal((await run(validBody({ kind: "x" }))).status, 400);
   assert.equal((await run(validBody({ files: [{ name: "a.exe", size: 1, type: "" }] }))).status, 400);
-  assert.equal((await run(validBody({ name: "" }))).status, 400);
+  assert.equal((await run(validBody({ message: "x".repeat(1001) }))).status, 400);
   assert.equal((await run(validBody(), ctx, { consume: async () => ({ allowed: false }) })).status, 429);
   const full = makeDeps();
   full.deps.drive.hasCapacity = async () => false;
@@ -313,7 +343,7 @@ const driveFiles = (postId, extra = {}) => [
     name: "x_1_movie.mov",
     size: 1000,
     parents: ["folder-1"],
-    description: "投稿者: ファン太郎\nメッセージ: 最高でした",
+    description: "メッセージ: 最高でした",
     appProperties: { postId, idx: "0", declSize: "1000", target: "live-1" },
     ...extra,
   },
@@ -322,7 +352,7 @@ const driveFiles = (postId, extra = {}) => [
     name: "x_2_photo.heic",
     size: 500,
     parents: ["folder-1"],
-    description: "投稿者: ファン太郎\nメッセージ: 最高でした",
+    description: "メッセージ: 最高でした",
     appProperties: { postId, idx: "1", declSize: "500", target: "live-1" },
   },
 ];

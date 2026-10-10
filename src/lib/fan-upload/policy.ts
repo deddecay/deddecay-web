@@ -71,8 +71,6 @@ export const DEFAULT_LIMITS: UploadLimits = {
 };
 
 export const FIELD_LIMITS = {
-  name: 60,
-  email: 254,
   message: 1000,
   fileName: 200,
 } as const;
@@ -159,16 +157,13 @@ export const sanitizeFileName = (fileName: string, maxLength = 100): string => {
   return ext ? `${safeBase}.${ext}` : safeBase;
 };
 
-export const isValidEmail = (value: string): boolean =>
-  value.length <= FIELD_LIMITS.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-
 export type FormTarget =
   | { kind: "live"; liveId: string }
   | { kind: "other" };
 
+// 投稿者の個人情報（名前・メール等）は要求も保存もしない。受け取るのは任意のメッセージだけ。
+// クライアントが他の項目を送ってきても読み捨てる。
 export type FormTextFields = {
-  name: string;
-  email: string;
   message: string;
 };
 
@@ -176,15 +171,9 @@ export type FormTextFields = {
 export const normalizeTextFields = (
   input: Record<string, unknown>
 ): { ok: true; value: FormTextFields } | { ok: false; reason: string } => {
-  const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
-  const name = str(input.name);
-  const email = str(input.email);
-  const message = str(input.message);
-  if (!name) return { ok: false, reason: "お名前(ニックネーム可)を入力してください" };
-  if (name.length > FIELD_LIMITS.name) return { ok: false, reason: "お名前が長すぎます" };
-  if (email && !isValidEmail(email)) return { ok: false, reason: "メールアドレスの形式が正しくありません" };
+  const message = typeof input.message === "string" ? input.message.trim() : "";
   if (message.length > FIELD_LIMITS.message) return { ok: false, reason: "メッセージが長すぎます" };
-  return { ok: true, value: { name, email, message } };
+  return { ok: true, value: { message } };
 };
 
 export const formatBytes = (bytes: number): string => {

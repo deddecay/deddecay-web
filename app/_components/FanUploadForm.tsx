@@ -8,7 +8,6 @@ import {
   GIB,
   checkDeclaredFiles,
   formatBytes,
-  isValidEmail,
 } from "@/src/lib/fan-upload/policy";
 import { UploadFatalError, uploadFile } from "@/src/lib/fan-upload/client-upload";
 
@@ -68,10 +67,7 @@ export default function FanUploadForm({ lives, initialLiveId }: Props) {
   const [liveId, setLiveId] = useState(
     initialLiveId && lives.some((l) => l.id === initialLiveId) ? initialLiveId : ""
   );
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
-  const [creditOk, setCreditOk] = useState(false);
   const [consent, setConsent] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [turnstileToken, setTurnstileToken] = useState("");
@@ -166,13 +162,10 @@ export default function FanUploadForm({ lives, initialLiveId }: Props) {
     : null;
 
   const targetReady = kind === "other" || (kind === "live" && liveId !== "");
-  const emailOk = email === "" || isValidEmail(email);
   const busy = phase === "uploading" || phase === "completing";
   const canSubmit =
     !busy &&
     targetReady &&
-    name.trim() !== "" &&
-    emailOk &&
     consent &&
     files.length > 0 &&
     fileCheck?.ok === true &&
@@ -203,10 +196,7 @@ export default function FanUploadForm({ lives, initialLiveId }: Props) {
           body: JSON.stringify({
             kind,
             liveId: kind === "live" ? liveId : undefined,
-            name,
-            email,
             message,
-            creditOk,
             consent: true,
             turnstileToken,
             files: files.map((f) => ({ name: f.name, size: f.size, type: f.type })),
@@ -375,31 +365,7 @@ export default function FanUploadForm({ lives, initialLiveId }: Props) {
         {fileCheck && !fileCheck.ok && <span className="text-[10px] text-red-400/80">{fileCheck.reason}</span>}
       </div>
 
-      {/* 投稿者情報 */}
-      <div className="flex flex-col gap-1.5">
-        <span className={labelBase}>お名前（ニックネーム可）</span>
-        <input
-          type="text"
-          value={name}
-          maxLength={FIELD_LIMITS.name}
-          disabled={busy}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="お名前"
-          className={inputBase}
-        />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <span className={labelBase}>メールアドレス（任意）</span>
-        <input
-          type="email"
-          value={email}
-          disabled={busy}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="your@email.com"
-          className={inputBase}
-        />
-        {email !== "" && !emailOk && <span className="text-[10px] text-red-400/80">valid email required</span>}
-      </div>
+      {/* 投稿者の個人情報（名前・メール等）は求めない。メッセージは任意 */}
       <div className="flex flex-col gap-1.5">
         <span className={labelBase}>メッセージ（任意）</span>
         <textarea
@@ -432,16 +398,6 @@ export default function FanUploadForm({ lives, initialLiveId }: Props) {
             className="mt-0.5 accent-white"
           />
           上記に同意します
-        </label>
-        <label className="flex items-start gap-2 text-[11px] text-white/55 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={creditOk}
-            disabled={busy}
-            onChange={(e) => setCreditOk(e.target.checked)}
-            className="mt-0.5 accent-white"
-          />
-          紹介時にお名前を表記してもよい（任意）
         </label>
       </div>
 

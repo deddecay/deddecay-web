@@ -167,13 +167,9 @@ export const handleInit = async (rawBody: unknown, ctx: InitContext, deps: Deps)
 
     const postId = newPostId();
     const stamp = `${t.y}${t.mo}${t.d}-${t.h}${t.mi}${t.s}`;
-    const posterTag = sanitizeSegment(text.value.name, 20);
     const description = [
-      `投稿者: ${text.value.name}`,
-      text.value.email ? `メール: ${text.value.email}` : null,
       text.value.message ? `メッセージ: ${text.value.message}` : null,
       live ? `公演: ${live.dateLabel} ${live.title} (${live.id})` : "公演: なし(その他)",
-      `クレジット表記: ${body.creditOk === true ? "可" : "不可"}`,
       `利用許諾: ${CONSENT_VERSION}`,
       `投稿ID: ${postId}`,
     ]
@@ -185,7 +181,7 @@ export const handleInit = async (rawBody: unknown, ctx: InitContext, deps: Deps)
       const file = files[i];
       const check = checkDeclaredFile(file, deps.limits);
       if (!check.ok) return fail(400, check.reason);
-      const name = `${stamp}_${posterTag}_${i + 1}_${sanitizeFileName(file.name)}`;
+      const name = `${stamp}_${i + 1}_${sanitizeFileName(file.name)}`;
       const sessionUrl = await deps.drive.createResumableSession({
         name,
         parentId,
