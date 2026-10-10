@@ -2,10 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { buildDeps } from "@/src/lib/fan-upload/runtime";
 import { handleInit } from "@/src/lib/fan-upload/service";
 import { clientIp } from "@/src/lib/fan-upload/ratelimit";
+import { fanMomentsEnabled } from "@/src/lib/fan-upload/flags";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
+  // 公開前は存在しないものとして扱う
+  if (!fanMomentsEnabled()) return NextResponse.json({ error: "Not Found" }, { status: 404 });
   const deps = buildDeps();
   if (!deps) {
     console.error("[fan-upload] 必須環境変数が未設定です (GOOGLE_OAUTH_* / FAN_UPLOAD_SECRET / TURNSTILE_SECRET_KEY)");

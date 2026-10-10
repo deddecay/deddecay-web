@@ -6,6 +6,7 @@ import { notFound } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { getLiveById, getAdjacentLiveEntries, formatLiveDate } from "@/src/lib/microcms";
+import { fanMomentsPublic } from "@/src/lib/fan-upload/flags";
 
 type Props = {
   params: Promise<{ contentId: string }>;
@@ -81,12 +82,15 @@ export default async function LiveDetailPage({ params, searchParams }: Props) {
             />
           )}
 
-          <Link
-            href={`/upload?live=${encodeURIComponent(contentId)}`}
-            className="text-[10px] tracking-widest text-white/55 hover:text-white/85 transition-colors duration-150"
-          >
-            → この公演の写真・動画を送る
-          </Link>
+          {/* Fan moments への導線（公開前は非表示） */}
+          {fanMomentsPublic() && (
+            <Link
+              href={`/upload?live=${encodeURIComponent(contentId)}`}
+              className="text-[10px] tracking-widest text-white/55 hover:text-white/85 transition-colors duration-150"
+            >
+              → この公演の写真・動画を送る
+            </Link>
+          )}
 
           {entry.externalLinks && entry.externalLinks.length > 0 && (
             <ul className="flex flex-col gap-2 pt-2">

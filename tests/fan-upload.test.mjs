@@ -15,6 +15,7 @@ import { consume, _resetMemoryForTest } from "../src/lib/fan-upload/ratelimit.ts
 import { DriveClient } from "../src/lib/fan-upload/drive.ts";
 import { handleInit, handleComplete, readAllowedOrigins } from "../src/lib/fan-upload/service.ts";
 import { parseRangeHeader, uploadFile, CHUNK_SIZE } from "../src/lib/fan-upload/client-upload.ts";
+import { fanMomentsEnabled, fanMomentsPublic } from "../src/lib/fan-upload/flags.ts";
 
 const ORIGIN = "https://deddecay.tokyo";
 const SECRET = "x".repeat(40);
@@ -64,6 +65,18 @@ test("上限はサーバーが渡した値で判定される（選択時の警�
   // 合計超過（個々は範囲内）→ 1件削除して戻せば通る
   assert.equal(checkDeclaredFiles([f("a.mp4", GIB), f("b.mp4", GIB)], limits).ok, false);
   assert.equal(checkDeclaredFiles([f("a.mp4", GIB)], limits).ok, true);
+});
+
+test("公開フラグ: 未設定なら無効・非公開。ENABLED なしでは PUBLIC も効かない", () => {
+  assert.equal(fanMomentsEnabled({}), false);
+  assert.equal(fanMomentsPublic({}), false);
+  assert.equal(fanMomentsEnabled({ FAN_MOMENTS_ENABLED: "1" }), true);
+  assert.equal(fanMomentsPublic({ FAN_MOMENTS_ENABLED: "1" }), false); // 内部有効でも導線は出さない
+  assert.equal(fanMomentsPublic({ FAN_MOMENTS_ENABLED: "1", FAN_MOMENTS_PUBLIC: "1" }), true);
+  assert.equal(fanMomentsPublic({ FAN_MOMENTS_PUBLIC: "1" }), false);
+  // "1" 以外（true / yes / 空文字 など）は有効にしない
+  assert.equal(fanMomentsEnabled({ FAN_MOMENTS_ENABLED: "true" }), false);
+  assert.equal(fanMomentsEnabled({ FAN_MOMENTS_ENABLED: "" }), false);
 });
 
 test("先頭バイト検証 (magic)", () => {

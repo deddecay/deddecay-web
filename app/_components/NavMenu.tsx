@@ -39,6 +39,8 @@ type Props = {
   liveItems: Entry[];
   biography: Biography | null;
   discographyItems: DiscographyRelease[];
+  // Fan moments への導線を表示するか（公開前は false）
+  showFanMoments?: boolean;
 };
 
 // ── Helpers ───────────────────────────────────────────
@@ -59,7 +61,7 @@ const matchesDiscoTab = (item: DiscographyRelease, tab: DiscoTab) => {
 
 // ── Component ────────────────────────────────────────
 
-export default function NavMenu({ newsItems, liveItems, biography, discographyItems }: Props) {
+export default function NavMenu({ newsItems, liveItems, biography, discographyItems, showFanMoments = false }: Props) {
   const [open, setOpen] = useState<Section | null>(null);
   // ALBUM / EP が0件のうちは SINGLE から開始する
   const [discoTab, setDiscoTab] = useState<DiscoTab>(() =>
@@ -319,13 +321,15 @@ export default function NavMenu({ newsItems, liveItems, biography, discographyIt
         {renderExpandable("discography")}
         {renderExpandable("contact")}
 
-        {/* Fan moments — ライブで撮影した写真・動画のアップロード窓口 */}
-        <li className="flex flex-col items-center">
-          <Link href="/upload" className={labelStyle}>
-            Fan moments
-          </Link>
-          <div className="h-px w-6 bg-white/20 mt-2" />
-        </li>
+        {/* Fan moments — ライブで撮影した写真・動画のアップロード窓口（公開前は非表示） */}
+        {showFanMoments && (
+          <li className="flex flex-col items-center">
+            <Link href="/upload" className={labelStyle}>
+              Fan moments
+            </Link>
+            <div className="h-px w-6 bg-white/20 mt-2" />
+          </li>
+        )}
 
         {/* STORE — 外部リンクのみ残す */}
         <li className="flex flex-col items-center">

@@ -2,7 +2,9 @@ export const revalidate = 60;
 
 import type { Metadata } from "next";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import FanUploadForm from "../_components/FanUploadForm";
+import { fanMomentsEnabled } from "@/src/lib/fan-upload/flags";
 import { getAllLives, formatLiveDate } from "@/src/lib/microcms";
 import { readLimits } from "@/src/lib/fan-upload/service";
 
@@ -17,6 +19,8 @@ type Props = {
 };
 
 export default async function FanUploadPage({ searchParams }: Props) {
+  // 公開前は 404（FAN_MOMENTS_ENABLED=1 の環境でだけ表示する）
+  if (!fanMomentsEnabled()) notFound();
   const { live } = await searchParams;
   const entries = await getAllLives();
   const lives = entries.map((entry) => ({
