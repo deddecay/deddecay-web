@@ -205,6 +205,33 @@ export const getLiveList = async (): Promise<Entry[]> => {
   }
 };
 
+// Fan Upload 用: 過去分を含む全 LIVE（開催日の新しい順）。microCMS の entries を唯一の正本として参照する
+export const getAllLives = async (): Promise<Entry[]> => {
+  const client = getClient();
+  if (!client) return [];
+  const limit = 100;
+  const all: Entry[] = [];
+  try {
+    for (let offset = 0; offset < 2000; offset += limit) {
+      const data = await client.getList<Entry>({
+        endpoint: "entries",
+        queries: {
+          filters: "type[contains]live",
+          orders: "-eventDate",
+          limit,
+          offset,
+          fields: "id,title,eventDate,publishedAt",
+        },
+      });
+      all.push(...data.contents);
+      if (all.length >= data.totalCount || data.contents.length === 0) break;
+    }
+    return all;
+  } catch {
+    return all;
+  }
+};
+
 export const getLiveById = async (contentId: string, draftKey?: string): Promise<Entry | null> => {
   const client = getClient();
   if (!client) return null;

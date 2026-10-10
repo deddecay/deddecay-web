@@ -319,6 +319,14 @@ export default function NavMenu({ newsItems, liveItems, biography, discographyIt
         {renderExpandable("discography")}
         {renderExpandable("contact")}
 
+        {/* DD UPLOAD — deddecay へ動画・写真・ファンアート等を送る公式アップロード窓口 */}
+        <li className="flex flex-col items-center">
+          <Link href="/upload" className={labelStyle}>
+            DD UPLOAD
+          </Link>
+          <div className="h-px w-6 bg-white/20 mt-2" />
+        </li>
+
         {/* STORE — 外部リンクのみ残す */}
         <li className="flex flex-col items-center">
           <a

@@ -81,6 +81,13 @@ export default async function LiveDetailPage({ params, searchParams }: Props) {
             />
           )}
 
+          <Link
+            href={`/upload?live=${encodeURIComponent(contentId)}`}
+            className="text-[10px] tracking-widest text-white/55 hover:text-white/85 transition-colors duration-150"
+          >
+            → この公演の写真・動画を送る
+          </Link>
+
           {entry.externalLinks && entry.externalLinks.length > 0 && (
             <ul className="flex flex-col gap-2 pt-2">
               {entry.externalLinks.map((link) => (
