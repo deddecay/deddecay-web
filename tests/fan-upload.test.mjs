@@ -9,12 +9,17 @@ import {
   sanitizeSegment,
   normalizeTextFields,
   GIB,
+  PART_SIZE,
+  isLivePostable,
+  postableLives,
 } from "../src/lib/fan-upload/policy.ts";
 import { issuePostToken, verifyPostToken } from "../src/lib/fan-upload/token.ts";
 import { consume, _resetMemoryForTest } from "../src/lib/fan-upload/ratelimit.ts";
+// Drive 連携は R2 への置換後は使っていない（コードは残している）。クライアント単体のテストだけ維持する
 import { DriveClient } from "../src/lib/fan-upload/drive.ts";
+import { R2Client, R2Error, signV4 } from "../src/lib/fan-upload/r2.ts";
 import { handleInit, handleComplete, readAllowedOrigins } from "../src/lib/fan-upload/service.ts";
-import { parseRangeHeader, uploadFile, CHUNK_SIZE } from "../src/lib/fan-upload/client-upload.ts";
+import { uploadFile, UploadFatalError } from "../src/lib/fan-upload/client-upload.ts";
 import { fanMomentsEnabled, fanMomentsPublic } from "../src/lib/fan-upload/flags.ts";
 
 const ORIGIN = "https://deddecay.tokyo";
@@ -136,6 +141,21 @@ test("投稿トークン: 署名・改ざん・期限", () => {
   assert.equal(verifyPostToken(SECRET, "a.b.c", now), null);
 });
 
+test("投稿トークン: 保存先プレフィックス(k)は決まった形式のものだけ受理する", () => {
+  const now = 1_000_000;
+  const issue = (k) => issuePostToken(SECRET, { pid: "abcdefghijkl", n: 1, total: 1, k }, now);
+  assert.equal(verifyPostToken(SECRET, issue("fan-moments/live/L-1/abcdefghijkl"), now)?.k, "fan-moments/live/L-1/abcdefghijkl");
+  assert.equal(verifyPostToken(SECRET, issue("fan-moments/other/abcdefghijkl"), now)?.k, "fan-moments/other/abcdefghijkl");
+  for (const bad of [
+    "other/abcdefghijkl",
+    "fan-moments/../x/abcdefghijkl",
+    "fan-moments/live//abcdefghijkl",
+    "fan-moments/live/L/a/b",
+  ]) {
+    assert.equal(verifyPostToken(SECRET, issue(bad), now), null, bad);
+  }
+});
+
 // ── rate limit ─────────────────────────────────────────
 
 test("rate limit: 上限超過と加算量", async () => {
@@ -149,6 +169,7 @@ test("rate limit: 上限超過と加算量", async () => {
 });
 
 // ── DriveClient（fetch モック）──────────────────────────
+// R2 への置換後は保存先として使っていない。コードを残している間はクライアント単体の動作だけ確認する
 
 const jsonRes = (data, init = {}) =>
   new Response(JSON.stringify(data), { status: 200, headers: { "content-type": "application/json" }, ...init });
@@ -229,35 +250,226 @@ test("Drive: 容量判定 (アプリ上限 / アカウント空き)", async () =
   assert.equal(await drive.hasCapacity(1, { appCapBytes: 2 * GIB, reserveBytes: 0 }), false); // アプリ上限
 });
 
+// ── R2Client（SigV4 / fetch モック）─────────────────────
+
+test("SigV4: AWS 公式ドキュメントの署名例（ヘッダ認証）と一致する", () => {
+  const out = signV4({
+    method: "GET",
+    host: "examplebucket.s3.amazonaws.com",
+    path: "/test.txt",
+    query: {},
+    headers: {
+      range: "bytes=0-9",
+      "x-amz-content-sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "x-amz-date": "20130524T000000Z",
+    },
+    payloadHash: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    accessKeyId: "AKIAIOSFODNN7EXAMPLE",
+    secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+    region: "us-east-1",
+    service: "s3",
+    amzDate: "20130524T000000Z",
+  });
+  assert.equal(out.signature, "f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41");
+  assert.equal(out.signedHeaders, "host;range;x-amz-content-sha256;x-amz-date");
+});
+
+test("SigV4: AWS 公式ドキュメントの署名例（署名付き URL）と一致する", () => {
+  const out = signV4({
+    method: "GET",
+    host: "examplebucket.s3.amazonaws.com",
+    path: "/test.txt",
+    query: {},
+    headers: {},
+    payloadHash: "UNSIGNED-PAYLOAD",
+    accessKeyId: "AKIAIOSFODNN7EXAMPLE",
+    secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+    region: "us-east-1",
+    service: "s3",
+    amzDate: "20130524T000000Z",
+    presignExpires: 86400,
+  });
+  assert.equal(out.signature, "aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404");
+});
+
+const R2_CONFIG = { accountId: "acct", bucket: "bkt", accessKeyId: "AKIDEXAMPLE", secretAccessKey: "SECRETKEYEXAMPLE" };
+const NOW = Date.parse("2026-10-10T06:00:00Z");
+
+const makeR2 = (handler) => {
+  const calls = [];
+  const fetchImpl = async (url, init = {}) => {
+    calls.push({ url: String(url), init });
+    return handler(String(url), init, calls);
+  };
+  return { r2: new R2Client(R2_CONFIG, fetchImpl, () => NOW), calls };
+};
+
+const xml = (body, init = {}) => new Response(body, { status: 200, headers: { "content-type": "application/xml" }, ...init });
+
+test("R2: 署名付きパート URL（認証情報を含まず、期限・パス・日本語キーが正しい）", () => {
+  const { r2 } = makeR2(async () => xml(""));
+  const url = r2.presignUploadPart("fan-moments/live/L1/abcdefghijkl/20261010-150000_1_ライブ 動画.mov", "UP-1", 2, 86400);
+  assert.ok(url.startsWith("https://acct.r2.cloudflarestorage.com/bkt/fan-moments/live/L1/abcdefghijkl/"));
+  assert.ok(url.includes("partNumber=2"));
+  assert.ok(url.includes("uploadId=UP-1"));
+  assert.ok(url.includes("X-Amz-Expires=86400"));
+  assert.match(url, /X-Amz-Signature=[0-9a-f]{64}$/);
+  assert.ok(url.includes("%E3%83%A9%E3%82%A4%E3%83%96%20%E5%8B%95%E7%94%BB.mov")); // 日本語・空白はエンコード
+  assert.ok(!url.includes("SECRETKEYEXAMPLE"));
+  assert.ok(url.includes("X-Amz-Credential=AKIDEXAMPLE%2F20261010%2Fauto%2Fs3%2Faws4_request")); // アクセスキー ID は URL に載る（秘密ではない）
+});
+
+test("R2: リクエストは署名付きで、秘密鍵そのものは送られない", async () => {
+  const { r2, calls } = makeR2(async () => xml("<InitiateMultipartUploadResult><UploadId>UP-9</UploadId></InitiateMultipartUploadResult>"));
+  const id = await r2.createMultipart("fan-moments/other/abcdefghijkl/a.mp4", "video/mp4");
+  assert.equal(id, "UP-9");
+  const call = calls[0];
+  assert.equal(call.init.method, "POST");
+  assert.equal(call.url, "https://acct.r2.cloudflarestorage.com/bkt/fan-moments/other/abcdefghijkl/a.mp4?uploads=");
+  assert.match(
+    call.init.headers.Authorization,
+    /^AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE\/20261010\/auto\/s3\/aws4_request, SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature=[0-9a-f]{64}$/
+  );
+  assert.equal(call.init.headers["Content-Type"], "video/mp4");
+  assert.ok(!JSON.stringify(call).includes("SECRETKEYEXAMPLE"));
+});
+
+test("R2: listParts はページングして番号順に返す", async () => {
+  const page1 =
+    "<ListPartsResult><IsTruncated>true</IsTruncated><NextPartNumberMarker>2</NextPartNumberMarker>" +
+    "<Part><PartNumber>2</PartNumber><ETag>&quot;b&quot;</ETag><Size>5</Size></Part>" +
+    "<Part><PartNumber>1</PartNumber><ETag>&quot;a&quot;</ETag><Size>16</Size></Part></ListPartsResult>";
+  const page2 =
+    "<ListPartsResult><IsTruncated>false</IsTruncated><Part><PartNumber>3</PartNumber><ETag>&quot;c&quot;</ETag><Size>7</Size></Part></ListPartsResult>";
+  const { r2, calls } = makeR2(async (url) => xml(url.includes("part-number-marker=2") ? page2 : page1));
+  const parts = await r2.listParts("k", "UP");
+  assert.deepEqual(
+    parts.map((p) => [p.number, p.size, p.etag]),
+    [
+      [1, 16, "&quot;a&quot;"],
+      [2, 5, "&quot;b&quot;"],
+      [3, 7, "&quot;c&quot;"],
+    ]
+  );
+  assert.equal(calls.length, 2);
+});
+
+test("R2: completeMultipart は本文にパート一覧を送り、200 でも本文のエラーは失敗扱い", async () => {
+  const parts = [
+    { number: 1, size: 16, etag: "&quot;a&quot;" },
+    { number: 2, size: 5, etag: "&quot;b&quot;" },
+  ];
+  const ok = makeR2(async () => xml("<CompleteMultipartUploadResult><Key>k</Key></CompleteMultipartUploadResult>"));
+  await ok.r2.completeMultipart("k", "UP", parts);
+  assert.equal(
+    ok.calls[0].init.body,
+    "<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>&quot;a&quot;</ETag></Part><Part><PartNumber>2</PartNumber><ETag>&quot;b&quot;</ETag></Part></CompleteMultipartUpload>"
+  );
+  const bad = makeR2(async () => xml("<Error><Code>InvalidPart</Code></Error>"));
+  await assert.rejects(bad.r2.completeMultipart("k", "UP", parts), (err) => err.code === "InvalidPart");
+});
+
+test("R2: 404 の扱い（head / getText / delete は許容、listParts はエラーコードを返す）", async () => {
+  const notFound = makeR2(async () => new Response("<Error><Code>NoSuchKey</Code></Error>", { status: 404 }));
+  assert.equal(await notFound.r2.head("k"), null);
+  assert.equal(await notFound.r2.getText("k"), null);
+  await notFound.r2.delete("k");
+  const noUpload = makeR2(async () => new Response("<Error><Code>NoSuchUpload</Code></Error>", { status: 404 }));
+  await assert.rejects(
+    noUpload.r2.listParts("k", "UP"),
+    (err) => err instanceof R2Error && err.status === 404 && err.code === "NoSuchUpload"
+  );
+  const found = makeR2(async () => new Response(null, { status: 200, headers: { "content-length": "1234" } }));
+  assert.deepEqual(await found.r2.head("k"), { size: 1234 });
+});
+
+test("R2: 使用量は一覧から合算しキャッシュされる / 受付上限の判定", async () => {
+  const { r2, calls } = makeR2(async () =>
+    xml(
+      "<ListBucketResult><IsTruncated>false</IsTruncated>" +
+        `<Contents><Key>a</Key><Size>${2 * GIB}</Size></Contents><Contents><Key>b</Key><Size>${GIB}</Size></Contents></ListBucketResult>`
+    )
+  );
+  assert.equal(await r2.appUsageBytes(), 3 * GIB);
+  assert.equal(await r2.appUsageBytes(), 3 * GIB);
+  assert.equal(calls.length, 1); // 2 回目はキャッシュ
+  assert.ok(calls[0].url.includes("list-type=2") && calls[0].url.includes("prefix=fan-moments%2F"));
+  assert.equal(await r2.hasCapacity(GIB, { appCapBytes: 4 * GIB }), true);
+  assert.equal(await r2.hasCapacity(GIB + 1, { appCapBytes: 4 * GIB }), false);
+});
+
 // ── service（init / complete）───────────────────────────
 
-const makeDeps = (over = {}) => {
-  const state = { mails: [], trashed: [], notified: [], sessions: [], folders: [], files: [] };
-  const deps = {
-    drive: {
-      hasCapacity: async () => true,
-      ensureFolderPath: async (segments) => {
-        state.folders.push(segments);
-        return "folder-1";
-      },
-      createResumableSession: async (p) => {
-        state.sessions.push(p);
-        return `https://www.googleapis.com/upload/drive/v3/files?upload_id=${state.sessions.length}`;
-      },
-      listPostFiles: async () => state.files,
-      readHead: async (id) => state.heads?.[id] ?? new Uint8Array([0, 0, 0, 0x20, 0x66, 0x74, 0x79, 0x70]),
-      trash: async (id) => {
-        state.trashed.push(id);
-      },
-      markNotified: async (id) => {
-        state.notified.push(id);
-        const f = state.files.find((x) => x.id === id);
-        if (f) f.appProperties.notified = "1";
-      },
+const MP4_HEAD = new Uint8Array([0, 0, 0, 0x20, 0x66, 0x74, 0x79, 0x70]);
+
+// R2 のインメモリ代役。マルチパートの状態と保存済みオブジェクトを持つ
+const makeStore = () => {
+  const objects = new Map(); // key -> string | { size, head }
+  const uploads = new Map(); // uploadId -> { key, mime, parts: Map(number -> size) }
+  const state = { created: [], aborted: [], completed: [], deleted: [], heads: {}, seq: 0 };
+  const store = {
+    bucket: "test-bucket",
+    hasCapacity: async () => true,
+    appUsageBytes: async () => 3 * GIB,
+    createMultipart: async (key, mime) => {
+      const id = `up${++state.seq}`;
+      uploads.set(id, { key, mime, parts: new Map() });
+      state.created.push({ key, mime, id });
+      return id;
     },
+    presignUploadPart: (key, uploadId, n) =>
+      `https://acct.r2.cloudflarestorage.com/test-bucket/${key}?partNumber=${n}&uploadId=${uploadId}&X-Amz-Signature=sig`,
+    abortMultipart: async (key, id) => {
+      uploads.delete(id);
+      state.aborted.push(key);
+    },
+    putObject: async (key, body) => {
+      objects.set(key, body);
+    },
+    getText: async (key) => (typeof objects.get(key) === "string" ? objects.get(key) : null),
+    listParts: async (_key, id) => {
+      const u = uploads.get(id);
+      if (!u) throw new R2Error("no upload", 404, "NoSuchUpload");
+      return [...u.parts].map(([number, size]) => ({ number, size, etag: `e${number}` })).sort((a, b) => a.number - b.number);
+    },
+    completeMultipart: async (key, id, parts) => {
+      objects.set(key, { size: parts.reduce((s, p) => s + p.size, 0), head: state.heads[key] ?? MP4_HEAD });
+      uploads.delete(id);
+      state.completed.push(key);
+    },
+    head: async (key) => {
+      const o = objects.get(key);
+      return o && typeof o !== "string" ? { size: o.size } : null;
+    },
+    readHead: async (key) => objects.get(key).head,
+    delete: async (key) => {
+      objects.delete(key);
+      state.deleted.push(key);
+    },
+  };
+  // ブラウザが署名付き URL へパートを PUT した状態を再現する（sizesByFile[i] = 各パートのサイズ）
+  const putParts = (initBody, sizesByFile) => {
+    initBody.uploads.forEach((upload, i) => {
+      upload.parts.forEach((url, p) => {
+        const u = new URL(url);
+        uploads.get(u.searchParams.get("uploadId")).parts.set(Number(u.searchParams.get("partNumber")), sizesByFile[i][p]);
+      });
+    });
+  };
+  const manifestOf = (prefix) => JSON.parse(objects.get(`${prefix}/manifest.json`));
+  return { store, state, objects, putParts, manifestOf };
+};
+
+const makeDeps = (over = {}) => {
+  const s = makeStore();
+  const state = { mails: [], ...s.state };
+  const deps = {
+    store: s.store,
     verifyTurnstile: async (t) => t === "good",
     consume: async () => ({ allowed: true }),
-    getLive: async (id) => (id === "live-1" ? { id, title: "渋谷 WWW X", dateLabel: "2025.04.12" } : null),
+    // 開催日時は「いま」(2026-10-10) の 20 日前 → 受付期間内
+    getLive: async (id) =>
+      id === "live-1" ? { id, title: "渋谷 WWW X", dateLabel: "2025.04.12", eventAt: "2026-09-20T10:00:00.000Z" } : null,
     sendMail: async (m) => {
       state.mails.push(m);
       return { ok: true };
@@ -266,12 +478,11 @@ const makeDeps = (over = {}) => {
     allowedOrigins: [ORIGIN],
     limits: { maxFiles: 10, maxFileBytes: 4 * GIB, maxPostBytes: 8 * GIB },
     appCapBytes: 50 * GIB,
-    reserveBytes: GIB,
     dailyBytesPerIp: 20 * GIB,
     now: () => Date.parse("2026-10-10T06:00:00Z"),
     ...over,
   };
-  return { deps, state };
+  return { ...s, deps, state };
 };
 
 const validBody = (over = {}) => ({
@@ -288,58 +499,153 @@ const validBody = (over = {}) => ({
 });
 const ctx = { ip: "203.0.113.5", origin: ORIGIN };
 
-test("init: LIVE 投稿は公演情報(正本)から自動フォルダ分類される", async () => {
-  const { deps, state } = makeDeps();
+test("init: LIVE 投稿は live/{liveId}/{uploadId}/ に分離され、manifest に投稿情報が残る", async () => {
+  const { deps, state, manifestOf } = makeDeps();
   const res = await handleInit(validBody(), ctx, deps);
   assert.equal(res.status, 200);
-  assert.deepEqual(state.folders[0], ["LIVE", "2025", "2025.04.12_渋谷 WWW X__live-1"]);
+  const prefix = `fan-moments/live/live-1/${res.body.postId}`;
+  assert.deepEqual(
+    state.created.map((c) => c.key),
+    [`${prefix}/20261010-150000_1_movie.mov`, `${prefix}/20261010-150000_2_photo.heic`] // JST。投稿者名は含まない
+  );
+  assert.equal(state.created[0].mime, "video/quicktime");
   assert.equal(res.body.uploads.length, 2);
+  assert.equal(res.body.uploads[0].partSize, PART_SIZE);
+  assert.equal(res.body.uploads[0].parts.length, 1);
   assert.ok(res.body.token && res.body.postId);
-  assert.equal(state.sessions[0].origin, ORIGIN);
-  assert.equal(state.sessions[0].mimeType, "video/quicktime");
-  assert.equal(state.sessions[0].appProperties.postId, res.body.postId);
-  assert.equal(state.sessions[0].appProperties.target, "live-1");
-  assert.match(state.sessions[0].name, /^20261010-150000_1_movie\.mov$/); // JST。投稿者名は含まない
-  // クライアントへ返すのはセッションURLのみ（Drive のフォルダ ID・認証情報を含まない）
+
+  const manifest = manifestOf(prefix);
+  assert.equal(manifest.uploadId, res.body.postId);
+  assert.equal(manifest.status, "pending");
+  assert.deepEqual(manifest.target, { kind: "live", liveId: "live-1", liveTitle: "渋谷 WWW X", liveDate: "2025.04.12" });
+  assert.equal(manifest.createdAt, "2026-10-10T06:00:00.000Z");
+  assert.equal(manifest.message, "最高でした");
+  assert.deepEqual(
+    manifest.files.map((f) => [f.originalName, f.declaredSize, f.mime, f.kind]),
+    [
+      ["movie.mov", 1000, "video/quicktime", "video"],
+      ["photo.heic", 500, "image/heic", "image"],
+    ]
+  );
+
+  // クライアントへ返すのは署名付きパート URL・投稿ID・トークンだけ（認証情報・内部キー構造の一覧を含まない）
   const serialized = JSON.stringify(res.body);
-  assert.ok(!serialized.includes("folder-1"));
   assert.ok(!serialized.includes(SECRET));
+  assert.ok(!serialized.includes("manifest.json"));
+});
+
+test("init: LIVE 表示名が変わっても保存先は liveId のまま（表示名・日付を識別子にしない）", async () => {
+  const a = makeDeps();
+  const b = makeDeps({
+    getLive: async (id) => ({ id, title: "改名後のタイトル", dateLabel: "2099.01.01", eventAt: "2026-09-20T10:00:00.000Z" }),
+  });
+  const ra = await handleInit(validBody(), ctx, a.deps);
+  const rb = await handleInit(validBody(), ctx, b.deps);
+  const dirOf = (state) => state.created[0].key.split("/").slice(0, 3).join("/");
+  assert.equal(dirOf(a.state), "fan-moments/live/live-1");
+  assert.equal(dirOf(b.state), "fan-moments/live/live-1");
+  for (const key of [...a.state.created, ...b.state.created].map((c) => c.key)) {
+    assert.ok(!key.includes("渋谷") && !key.includes("改名後") && !key.includes("2025.04.12"));
+  }
+  assert.notEqual(ra.body.postId, rb.body.postId);
+});
+
+test("init: 同じ LIVE への別投稿は uploadId で分離され、ファイルが混在しない", async () => {
+  const { deps, state } = makeDeps();
+  const r1 = await handleInit(validBody(), ctx, deps);
+  const r2 = await handleInit(validBody(), ctx, deps);
+  assert.notEqual(r1.body.postId, r2.body.postId);
+  const prefixes = state.created.map((c) => c.key.split("/").slice(0, 4).join("/"));
+  assert.deepEqual(
+    new Set(prefixes),
+    new Set([`fan-moments/live/live-1/${r1.body.postId}`, `fan-moments/live/live-1/${r2.body.postId}`])
+  );
+});
+
+test("init: LIVE は開催後 30 日間だけ受け付ける（開催前・30 日超は拒否、「その他」は対象外）", async () => {
+  const NOW_MS = Date.parse("2026-10-10T06:00:00Z");
+  const withEvent = (eventAt) =>
+    makeDeps({ getLive: async (id) => ({ id, title: "t", dateLabel: "d", eventAt }) });
+  const status = async (eventAt) => {
+    const { deps, state } = withEvent(eventAt);
+    const res = await handleInit(validBody(), ctx, deps);
+    return { status: res.status, created: state.created.length, error: res.body.error };
+  };
+  // 期間内: ちょうど開始 / 29 日前
+  assert.equal((await status(new Date(NOW_MS).toISOString())).status, 200);
+  assert.equal((await status(new Date(NOW_MS - 29 * 86_400_000).toISOString())).status, 200);
+  // 期間外: 開催前（1 ミリ秒先）/ 30 日ちょうど / 31 日前 / 日時なし・不正
+  for (const eventAt of [
+    new Date(NOW_MS + 1).toISOString(),
+    new Date(NOW_MS - 30 * 86_400_000).toISOString(),
+    new Date(NOW_MS - 31 * 86_400_000).toISOString(),
+    undefined,
+    "not-a-date",
+  ]) {
+    const r = await status(eventAt);
+    assert.equal(r.status, 400, String(eventAt));
+    assert.equal(r.created, 0, String(eventAt)); // R2 に何も作らない
+    assert.ok(r.error.includes("30日"));
+  }
+  // 「その他」は LIVE の期間に関係なく常に受け付ける
+  const other = makeDeps({ getLive: async () => null });
+  assert.equal((await handleInit(validBody({ kind: "other", liveId: undefined }), ctx, other.deps)).status, 200);
+});
+
+test("LIVE の受付期間: 暦月ではなく開催日時からの 30 日で判定し、一覧は受付中のものだけ残す", () => {
+  const start = Date.parse("2026-01-31T10:00:00Z"); // 月末開催でも 30 日 = 3/2 10:00（暦月の 2 月末ではない）
+  assert.equal(isLivePostable("2026-01-31T10:00:00Z", start - 1), false); // 開催前
+  assert.equal(isLivePostable("2026-01-31T10:00:00Z", start), true);
+  assert.equal(isLivePostable("2026-01-31T10:00:00Z", Date.parse("2026-03-02T09:59:59Z")), true);
+  assert.equal(isLivePostable("2026-01-31T10:00:00Z", Date.parse("2026-03-02T10:00:00Z")), false);
+  assert.equal(isLivePostable(undefined, start), false);
+
+  const now = Date.parse("2026-10-10T06:00:00Z");
+  const entries = [
+    { id: "future", eventDate: "2026-10-20T10:00:00Z" },
+    { id: "recent", eventDate: "2026-10-01T10:00:00Z" },
+    { id: "expired", eventDate: "2026-09-01T10:00:00Z" },
+    { id: "no-event-date", publishedAt: "2026-10-05T00:00:00Z" }, // eventDate が無ければ表示と同じく publishedAt
+    { id: "nothing" },
+  ];
+  assert.deepEqual(postableLives(entries, now).map((e) => e.id), ["recent", "no-event-date"]);
+  assert.deepEqual(postableLives(entries, now), postableLives(entries, now)); // 副作用なし
+  assert.equal(entries.length, 5);
+});
+
+test("init: その他投稿は other/{uploadId}/ に保存（LIVE とは別の枝）", async () => {
+  const { deps, state, manifestOf } = makeDeps();
+  const res = await handleInit(validBody({ kind: "other", liveId: undefined }), ctx, deps);
+  assert.equal(res.status, 200);
+  const prefix = `fan-moments/other/${res.body.postId}`;
+  assert.ok(state.created.every((c) => c.key.startsWith(`${prefix}/`)));
+  assert.deepEqual(manifestOf(prefix).target, { kind: "other" });
 });
 
 test("init: 投稿者の個人情報は要求も保存もしない（送られても読み捨てる）", async () => {
-  const { deps, state } = makeDeps();
-  // 名前・メール・クレジット可否が不要になったので、無くても通る
-  const res = await handleInit(validBody(), ctx, deps);
+  const { deps, state, objects } = makeDeps();
+  const res = await handleInit(validBody({ name: "ファン太郎", email: "fan@example.com", creditOk: true }), ctx, deps);
   assert.equal(res.status, 200);
-  // 古いクライアントが名前・メールを送ってきても、ファイル名・説明欄・メタデータに残さない
-  const legacy = makeDeps();
-  const res2 = await handleInit(
-    validBody({ name: "ファン太郎", email: "fan@example.com", creditOk: true }),
-    ctx,
-    legacy.deps
-  );
-  assert.equal(res2.status, 200);
-  for (const s of [...state.sessions, ...legacy.state.sessions]) {
-    const dump = JSON.stringify(s);
-    assert.ok(!dump.includes("ファン太郎"));
-    assert.ok(!dump.includes("fan@example.com"));
-    assert.ok(!dump.includes("投稿者"));
-    assert.ok(!dump.includes("メール:"));
-    assert.ok(!dump.includes("クレジット"));
+  const dump = JSON.stringify([...objects.entries()]) + JSON.stringify(state.created);
+  for (const word of ["ファン太郎", "fan@example.com", "投稿者", "クレジット", "203.0.113.5"]) {
+    assert.ok(!dump.includes(word), word);
   }
-  // メッセージは任意で、あれば説明欄に残る
-  assert.ok(state.sessions[0].description.includes("最高でした"));
+  // メッセージは任意
   const noMessage = makeDeps();
-  assert.equal((await handleInit(validBody({ message: "" }), ctx, noMessage.deps)).status, 200);
-  assert.ok(!noMessage.state.sessions[0].description.includes("メッセージ:"));
+  const r = await handleInit(validBody({ message: "" }), ctx, noMessage.deps);
+  assert.equal(r.status, 200);
+  assert.equal(noMessage.manifestOf(`fan-moments/live/live-1/${r.body.postId}`).message, "");
 });
 
-test("init: その他投稿は OTHER/年-月 に保存", async () => {
+test("init: 大きなファイルは 16MiB ごとのパートに分かれ、パートごとの署名付き URL を返す", async () => {
   const { deps, state } = makeDeps();
-  const res = await handleInit(validBody({ kind: "other", liveId: undefined }), ctx, deps);
+  const size = PART_SIZE * 2 + 10;
+  const res = await handleInit(validBody({ files: [{ name: "big.mov", size, type: "video/quicktime" }] }), ctx, deps);
   assert.equal(res.status, 200);
-  assert.deepEqual(state.folders[0], ["OTHER", "2026-10"]);
-  assert.equal(state.sessions[0].appProperties.target, "other");
+  assert.equal(res.body.uploads[0].parts.length, 3);
+  const numbers = res.body.uploads[0].parts.map((u) => new URL(u).searchParams.get("partNumber"));
+  assert.deepEqual(numbers, ["1", "2", "3"]);
+  assert.equal(state.created.length, 1); // 1 ファイル = 1 マルチパートアップロード
 });
 
 test("init: 拒否条件 (origin / consent / turnstile / live / 形式 / 容量 / rate limit)", async () => {
@@ -349,105 +655,184 @@ test("init: 拒否条件 (origin / consent / turnstile / live / 形式 / 容量 
   assert.equal((await run(validBody({ consent: false }))).status, 400);
   assert.equal((await run(validBody({ turnstileToken: "bad" }))).status, 403);
   assert.equal((await run(validBody({ liveId: "nope" }))).status, 400);
+  assert.equal((await run(validBody({ liveId: "../etc" }))).status, 400);
   assert.equal((await run(validBody({ kind: "x" }))).status, 400);
   assert.equal((await run(validBody({ files: [{ name: "a.exe", size: 1, type: "" }] }))).status, 400);
   assert.equal((await run(validBody({ message: "x".repeat(1001) }))).status, 400);
   assert.equal((await run(validBody(), ctx, { consume: async () => ({ allowed: false }) })).status, 429);
   const full = makeDeps();
-  full.deps.drive.hasCapacity = async () => false;
+  full.deps.store.hasCapacity = async () => false;
   assert.equal((await handleInit(validBody(), ctx, full.deps)).status, 503);
-  assert.equal(full.state.sessions.length, 0);
+  assert.equal(full.state.created.length, 0);
 });
 
-test("init: Turnstile 失敗時は Drive に何も作らない", async () => {
-  const { deps, state } = makeDeps();
+test("init: 上限は従来どおり（ファイル数 / 1 ファイル / 合計）", async () => {
+  const run = async (files) => (await handleInit(validBody({ files }), ctx, makeDeps().deps)).status;
+  const f = (name, size) => ({ name, size, type: "" });
+  assert.equal(await run(Array.from({ length: 11 }, (_, i) => f(`${i}.jpg`, 1))), 400);
+  assert.equal(await run([f("a.mp4", 4 * GIB + 1)]), 400);
+  assert.equal(await run([f("a.mp4", 4 * GIB), f("b.mp4", 4 * GIB), f("c.mp4", 1)]), 400);
+  assert.equal(await run([f("a.mp4", 4 * GIB), f("b.mp4", 4 * GIB)]), 200);
+});
+
+test("init: Turnstile 失敗時は R2 に何も作らない", async () => {
+  const { deps, state, objects } = makeDeps();
   await handleInit(validBody({ turnstileToken: "bad" }), ctx, deps);
-  assert.equal(state.folders.length, 0);
-  assert.equal(state.sessions.length, 0);
+  assert.equal(state.created.length, 0);
+  assert.equal(objects.size, 0);
 });
 
-const driveFiles = (postId, extra = {}) => [
-  {
-    id: "f1",
-    name: "x_1_movie.mov",
-    size: 1000,
-    parents: ["folder-1"],
-    description: "メッセージ: 最高でした",
-    appProperties: { postId, idx: "0", declSize: "1000", target: "live-1" },
-    ...extra,
-  },
-  {
-    id: "f2",
-    name: "x_2_photo.heic",
-    size: 500,
-    parents: ["folder-1"],
-    description: "メッセージ: 最高でした",
-    appProperties: { postId, idx: "1", declSize: "500", target: "live-1" },
-  },
-];
-
-test("complete: 全ファイル保存済みなら 1 投稿 = 1 通のメール", async () => {
+test("init: 保存先の準備に失敗したら、作りかけのマルチパートアップロードを取り消す", async () => {
   const { deps, state } = makeDeps();
+  deps.store.putObject = async () => {
+    throw new R2Error("boom", 500);
+  };
+  const res = await handleInit(validBody(), ctx, deps);
+  assert.equal(res.status, 502);
+  assert.deepEqual(state.aborted.sort(), state.created.map((c) => c.key).sort());
+});
+
+test("complete: 全ファイル保存済みなら結合・検証し、1 投稿 = 1 通のメール（添付なし）", async () => {
+  const { deps, state, putParts, manifestOf } = makeDeps();
   const init = await handleInit(validBody(), ctx, deps);
-  state.files = driveFiles(init.body.postId);
+  putParts(init.body, [[1000], [500]]);
   const res = await handleComplete({ token: init.body.token }, ctx, deps);
   assert.equal(res.status, 200);
   assert.equal(res.body.accepted, 2);
+  assert.equal(res.body.mailed, true);
+  assert.equal(state.completed.length, 2);
   assert.equal(state.mails.length, 1); // 2 ファイルでも 1 通
-  assert.ok(state.mails[0].text.includes("movie.mov") || state.mails[0].text.includes("x_1_movie.mov"));
-  assert.ok(state.mails[0].text.includes("最高でした"));
-  assert.ok(state.mails[0].text.includes("folder-1")); // 管理者向けメールにのみフォルダリンク
-  assert.deepEqual(state.notified.sort(), ["f1", "f2"]);
-  // 再実行しても再送しない
+  const mail = state.mails[0];
+  assert.equal(mail.subject, "[DD UPLOAD]LIVE 2件");
+  assert.ok(!("attachments" in mail)); // ファイル自体は添付しない
+  for (const needle of [
+    init.body.postId,
+    "LIVE: 2025.04.12 渋谷 WWW X (live-1)", // どの LIVE への投稿か分かる
+    "投稿日時(JST): 2026-10-10 15:00:00",
+    "movie.mov",
+    "photo.heic",
+    "最高でした",
+    "バケット: test-bucket",
+    `フォルダ: fan-moments/live/live-1/${init.body.postId}/`,
+    "R2 使用量(概算): 3.00 GB / 受付上限 50.00 GB",
+  ]) {
+    assert.ok(mail.text.includes(needle), needle);
+  }
+  assert.ok(!mail.text.includes("https://")); // ファイルへの URL は載せない（非公開のまま）
+  const manifest = manifestOf(`fan-moments/live/live-1/${init.body.postId}`);
+  assert.equal(manifest.status, "complete");
+  assert.equal(manifest.notified, true);
+  assert.equal(manifest.completedAt, "2026-10-10T06:00:00.000Z");
+  assert.deepEqual(manifest.files.map((f) => f.result), ["accepted", "accepted"]);
+
+  // 再実行しても再送・再結合しない
   const again = await handleComplete({ token: init.body.token }, ctx, deps);
   assert.equal(again.status, 200);
   assert.equal(state.mails.length, 1);
+  assert.equal(state.completed.length, 2);
 });
 
-test("complete: 未完了ファイルがあれば 409 でメールしない", async () => {
-  const { deps, state } = makeDeps();
+test("complete: その他投稿のメールは「その他」と分かる", async () => {
+  const { deps, state, putParts } = makeDeps();
+  const init = await handleInit(validBody({ kind: "other", liveId: undefined }), ctx, deps);
+  putParts(init.body, [[1000], [500]]);
+  assert.equal((await handleComplete({ token: init.body.token }, ctx, deps)).status, 200);
+  assert.equal(state.mails[0].subject, "[DD UPLOAD]その他 2件");
+  assert.ok(state.mails[0].text.includes("区分: その他"));
+  assert.ok(state.mails[0].text.includes(`フォルダ: fan-moments/other/${init.body.postId}/`));
+});
+
+test("complete: 複数パートのファイルは全パートが揃った時点で結合される", async () => {
+  const { deps, state, putParts } = makeDeps();
+  const size = PART_SIZE * 2 + 10;
+  const init = await handleInit(validBody({ files: [{ name: "big.mov", size, type: "video/quicktime" }] }), ctx, deps);
+  // パート 1・2 だけ → 未完了
+  putParts({ uploads: [{ parts: init.body.uploads[0].parts.slice(0, 2) }] }, [[PART_SIZE, PART_SIZE]]);
+  const early = await handleComplete({ token: init.body.token }, ctx, deps);
+  assert.equal(early.status, 409);
+  assert.equal(state.completed.length, 0);
+  assert.equal(state.mails.length, 0);
+  // 残りを送って再実行（再開）
+  putParts(init.body, [[PART_SIZE, PART_SIZE, 10]]);
+  const done = await handleComplete({ token: init.body.token }, ctx, deps);
+  assert.equal(done.status, 200);
+  assert.equal(state.completed.length, 1);
+  assert.equal(state.mails.length, 1);
+});
+
+test("complete: 未完了ファイルがあれば 409 で何も確定せずメールもしない", async () => {
+  const { deps, state, putParts } = makeDeps();
   const init = await handleInit(validBody(), ctx, deps);
-  state.files = driveFiles(init.body.postId).slice(0, 1);
+  putParts({ uploads: [init.body.uploads[0]] }, [[1000]]); // 2 つ目が届いていない
   const res = await handleComplete({ token: init.body.token }, ctx, deps);
   assert.equal(res.status, 409);
+  assert.equal(res.body.uploaded, 1);
+  assert.equal(res.body.expected, 2);
+  assert.equal(state.completed.length, 0);
   assert.equal(state.mails.length, 0);
 });
 
-test("complete: 中身が拡張子と一致しないファイルは破棄し、残りだけ通知", async () => {
-  const { deps, state } = makeDeps();
+test("complete: 中身が拡張子と一致しないファイルは削除し、残りだけ通知", async () => {
+  const { deps, state, putParts, manifestOf } = makeDeps();
   const init = await handleInit(validBody(), ctx, deps);
-  state.files = driveFiles(init.body.postId);
-  state.heads = { f2: new TextEncoder().encode("MZ\x90\x00 not an image") };
+  state.heads[state.created[1].key] = new TextEncoder().encode("MZ\x90\x00 not an image");
+  putParts(init.body, [[1000], [500]]);
   const res = await handleComplete({ token: init.body.token }, ctx, deps);
   assert.equal(res.status, 200);
   assert.equal(res.body.accepted, 1);
   assert.equal(res.body.rejected, 1);
-  assert.deepEqual(state.trashed, ["f2"]);
+  assert.deepEqual(state.deleted, [state.created[1].key]);
   assert.equal(state.mails.length, 1);
+  assert.ok(state.mails[0].text.includes("検証で除外: 1件"));
+  assert.ok(!state.mails[0].text.includes("photo.heic"));
+  const manifest = manifestOf(`fan-moments/live/live-1/${init.body.postId}`);
+  assert.deepEqual(manifest.files.map((f) => f.result), ["accepted", "rejected"]);
 });
 
-test("complete: 宣言サイズと違うファイルは破棄 / 全滅なら 422 でメールなし", async () => {
-  const { deps, state } = makeDeps();
+test("complete: 宣言サイズと違うファイルは取り消して除外 / 全滅なら 422 でメールなし", async () => {
+  const { deps, state, putParts } = makeDeps();
   const init = await handleInit(validBody(), ctx, deps);
-  state.files = driveFiles(init.body.postId).map((f) => ({ ...f, size: f.size + 1 }));
+  putParts(init.body, [[1001], [501]]); // どちらもサイズ不一致
   const res = await handleComplete({ token: init.body.token }, ctx, deps);
   assert.equal(res.status, 422);
   assert.equal(state.mails.length, 0);
-  assert.equal(state.trashed.length, 2);
+  assert.equal(state.completed.length, 0); // 結合しない
+  assert.equal(state.aborted.length, 2); // マルチパートを取り消す
 });
 
-test("complete: 不正トークン・別オリジン・メール失敗時", async () => {
-  const { deps, state } = makeDeps();
+test("complete: 不正トークン・別オリジン・保存先を指さないトークン", async () => {
+  const { deps } = makeDeps();
   assert.equal((await handleComplete({ token: "bogus" }, ctx, deps)).status, 401);
   assert.equal((await handleComplete({ token: "x" }, { ip: "1.1.1.1", origin: "https://evil.example" }, deps)).status, 403);
+  const now = deps.now();
+  // 保存先(k)を持たないトークン / postId と一致しない保存先を指すトークン
+  const noPrefix = issuePostToken(SECRET, { pid: "abcdefghijkl", n: 1, total: 1 }, now);
+  assert.equal((await handleComplete({ token: noPrefix }, ctx, deps)).status, 401);
+  const mismatched = issuePostToken(SECRET, { pid: "abcdefghijkl", n: 1, total: 1, k: "fan-moments/other/zzzzzzzzzz" }, now);
+  assert.equal((await handleComplete({ token: mismatched }, ctx, deps)).status, 401);
+  // 任意のキーを指す k はトークンとして受理されない
+  const arbitrary = issuePostToken(SECRET, { pid: "abcdefghijkl", n: 1, total: 1, k: "../secret/abcdefghijkl" }, now);
+  assert.equal(verifyPostToken(SECRET, arbitrary, now), null);
+});
 
+test("complete: メール失敗時も保存は成功扱い。未通知のまま残り、再実行で再送できる", async () => {
+  const { deps, state, putParts, manifestOf } = makeDeps();
   const init = await handleInit(validBody(), ctx, deps);
-  state.files = driveFiles(init.body.postId);
-  deps.sendMail = async () => ({ ok: false });
+  putParts(init.body, [[1000], [500]]);
+  let sendOk = false;
+  deps.sendMail = async (m) => {
+    if (sendOk) state.mails.push(m);
+    return { ok: sendOk };
+  };
   const res = await handleComplete({ token: init.body.token }, ctx, deps);
   assert.equal(res.status, 200); // 保存は成功しているのでユーザーにはエラーにしない
   assert.equal(res.body.mailed, false);
-  assert.equal(state.notified.length, 0); // 未通知のまま → 再実行で再送できる
+  assert.equal(manifestOf(`fan-moments/live/live-1/${init.body.postId}`).notified, false);
+  sendOk = true;
+  const retry = await handleComplete({ token: init.body.token }, ctx, deps);
+  assert.equal(retry.body.mailed, true);
+  assert.equal(state.mails.length, 1);
+  assert.equal(state.completed.length, 2); // 結合は 1 回だけ
 });
 
 test("許可オリジン: 本番ドメインを含み、任意オリジンは含まない", () => {
@@ -459,54 +844,95 @@ test("許可オリジン: 本番ドメインを含み、任意オリジンは含
 
 // ── client-upload ──────────────────────────────────────
 
-test("Range ヘッダの解釈", () => {
-  assert.equal(parseRangeHeader("bytes=0-99"), 100);
-  assert.equal(parseRangeHeader(null), null);
-  assert.equal(parseRangeHeader("garbage"), null);
-});
-
-test("チャンクアップロード: 複数チャンクで完了し、Content-Range が正しい", async () => {
-  const size = CHUNK_SIZE + 1234;
-  const file = new File([new Uint8Array(size)], "a.mp4");
-  const ranges = [];
+const withFetch = async (impl, fn) => {
   const realFetch = globalThis.fetch;
-  globalThis.fetch = async (_url, init) => {
-    ranges.push(init.headers["Content-Range"]);
-    const isLast = init.headers["Content-Range"].startsWith(`bytes ${CHUNK_SIZE}-`);
-    return isLast
-      ? new Response("{}", { status: 200 })
-      : new Response(null, { status: 308, headers: { Range: `bytes=0-${CHUNK_SIZE - 1}` } });
-  };
+  globalThis.fetch = impl;
   try {
-    let last = 0;
-    await uploadFile(file, "https://www.googleapis.com/upload/x", (b) => (last = b));
-    assert.deepEqual(ranges, [`bytes 0-${CHUNK_SIZE - 1}/${size}`, `bytes ${CHUNK_SIZE}-${size - 1}/${size}`]);
-    assert.equal(last, size);
+    await fn();
   } finally {
     globalThis.fetch = realFetch;
   }
-});
+};
 
-test("チャンクアップロード: 通信断のあと受信済み位置から再開する", async () => {
-  const size = 1000;
-  const file = new File([new Uint8Array(size)], "a.mp4");
-  const log = [];
-  const realFetch = globalThis.fetch;
-  let first = true;
-  globalThis.fetch = async (_url, init) => {
-    const range = init.headers["Content-Range"];
-    log.push(range);
-    if (first) {
-      first = false;
-      throw new TypeError("network down");
+test("パートアップロード: パートごとに署名付き URL へ PUT し、進捗とパート位置が進む", async () => {
+  const file = new File([new Uint8Array(10)], "a.mp4");
+  const upload = { name: "a.mp4", partSize: 4, parts: ["https://r2.example/p1", "https://r2.example/p2", "https://r2.example/p3"] };
+  const puts = [];
+  const progress = [];
+  await withFetch(
+    async (url, init) => {
+      puts.push([String(url), init.method, init.body.size]);
+      return new Response(null, { status: 200 });
+    },
+    async () => {
+      await uploadFile(file, upload, (b) => progress.push(b));
     }
-    if (range === `bytes */${size}`) return new Response(null, { status: 308, headers: { Range: "bytes=0-499" } });
-    return new Response("{}", { status: 200 });
+  );
+  assert.deepEqual(puts, [
+    ["https://r2.example/p1", "PUT", 4],
+    ["https://r2.example/p2", "PUT", 4],
+    ["https://r2.example/p3", "PUT", 2],
+  ]);
+  assert.deepEqual(progress, [0, 4, 8, 10]);
+  assert.equal(upload.donePart, 3);
+});
+
+test("パートアップロード: 通信断では失敗したパートだけ再送し、完了済みパートは再送しない", async () => {
+  const file = new File([new Uint8Array(8)], "a.mp4");
+  const upload = { name: "a.mp4", partSize: 4, parts: ["https://r2.example/p1", "https://r2.example/p2"] };
+  const log = [];
+  let failedOnce = false;
+  await withFetch(
+    async (url) => {
+      log.push(String(url));
+      if (String(url).endsWith("/p2") && !failedOnce) {
+        failedOnce = true;
+        throw new TypeError("network down");
+      }
+      return new Response(null, { status: 200 });
+    },
+    async () => {
+      await uploadFile(file, upload, () => {});
+    }
+  );
+  assert.deepEqual(log, ["https://r2.example/p1", "https://r2.example/p2", "https://r2.example/p2"]);
+});
+
+test("パートアップロード: 「再開する」では完了済みパートの続きから送る", async () => {
+  const file = new File([new Uint8Array(12)], "a.mp4");
+  const upload = {
+    name: "a.mp4",
+    partSize: 4,
+    parts: ["https://r2.example/p1", "https://r2.example/p2", "https://r2.example/p3"],
+    donePart: 2,
   };
-  try {
-    await uploadFile(file, "https://www.googleapis.com/upload/x", () => {});
-    assert.deepEqual(log, [`bytes 0-999/${size}`, `bytes */${size}`, `bytes 500-999/${size}`]);
-  } finally {
-    globalThis.fetch = realFetch;
-  }
+  const log = [];
+  const progress = [];
+  await withFetch(
+    async (url) => {
+      log.push(String(url));
+      return new Response(null, { status: 200 });
+    },
+    async () => {
+      await uploadFile(file, upload, (b) => progress.push(b));
+    }
+  );
+  assert.deepEqual(log, ["https://r2.example/p3"]);
+  assert.deepEqual(progress, [8, 12]);
+});
+
+test("パートアップロード: 署名の期限切れ(403)は再試行せず致命的エラー", async () => {
+  const file = new File([new Uint8Array(4)], "a.mp4");
+  const upload = { name: "a.mp4", partSize: 4, parts: ["https://r2.example/p1"] };
+  let calls = 0;
+  await withFetch(
+    async () => {
+      calls++;
+      return new Response("expired", { status: 403 });
+    },
+    async () => {
+      await assert.rejects(uploadFile(file, upload, () => {}), UploadFatalError);
+    }
+  );
+  assert.equal(calls, 1);
 });

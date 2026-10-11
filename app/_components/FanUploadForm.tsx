@@ -11,7 +11,7 @@ import {
   formatBytes,
   type UploadLimits,
 } from "@/src/lib/fan-upload/policy";
-import { UploadFatalError, uploadFile } from "@/src/lib/fan-upload/client-upload";
+import { UploadFatalError, uploadFile, type PartUpload } from "@/src/lib/fan-upload/client-upload";
 
 export type LiveOption = { id: string; label: string };
 
@@ -27,7 +27,7 @@ type Phase = "idle" | "uploading" | "completing" | "done";
 type Session = {
   postId: string;
   token: string;
-  uploads: { name: string; sessionUrl: string }[];
+  uploads: PartUpload[];
   done: Set<number>;
   signature: string;
 };
@@ -253,7 +253,7 @@ export default function FanUploadForm({ lives, initialLiveId, limits }: Props) {
           error?: string;
           postId?: string;
           token?: string;
-          uploads?: { name: string; sessionUrl: string }[];
+          uploads?: PartUpload[];
         };
         if (!res.ok || !data.postId || !data.token || !data.uploads) {
           resetTurnstile();
@@ -267,7 +267,7 @@ export default function FanUploadForm({ lives, initialLiveId, limits }: Props) {
 
       for (let i = 0; i < files.length; i++) {
         if (session.done.has(i)) continue;
-        await uploadFile(files[i], session.uploads[i].sessionUrl, (bytes) =>
+        await uploadFile(files[i], session.uploads[i], (bytes) =>
           setProgress((prev) => prev.map((p, idx) => (idx === i ? bytes : p)))
         );
         session.done.add(i);
@@ -379,7 +379,10 @@ export default function FanUploadForm({ lives, initialLiveId, limits }: Props) {
               </option>
             ))}
           </select>
-          {lives.length === 0 && <span className="text-[10px] text-white/40">公演情報を取得できませんでした</span>}
+          <span className="text-[10px] text-white/40">ライブ開催後30日間アップロードできます</span>
+          {lives.length === 0 && (
+            <span className="text-[10px] text-white/40">現在アップロードできる公演はありません（「その他」はいつでも選べます）</span>
+          )}
         </div>
       )}
 

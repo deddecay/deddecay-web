@@ -7,6 +7,7 @@ import FanUploadForm from "../_components/FanUploadForm";
 import { fanMomentsEnabled } from "@/src/lib/fan-upload/flags";
 import { getAllLives, formatLiveDate } from "@/src/lib/microcms";
 import { readLimits } from "@/src/lib/fan-upload/service";
+import { postableLivesNow } from "@/src/lib/fan-upload/policy";
 
 export const metadata: Metadata = {
   title: "Fan moments | deddecay",
@@ -22,7 +23,8 @@ export default async function FanUploadPage({ searchParams }: Props) {
   // 公開前は 404（FAN_MOMENTS_ENABLED=1 の環境でだけ表示する）
   if (!fanMomentsEnabled()) notFound();
   const { live } = await searchParams;
-  const entries = await getAllLives();
+  // 一覧に出すのは、いま投稿を受け付けている LIVE（開催後 30 日間）だけ。取得処理は従来のまま
+  const entries = postableLivesNow(await getAllLives());
   const lives = entries.map((entry) => ({
     id: entry.id,
     label: `${formatLiveDate(entry)}  ${entry.title}`,

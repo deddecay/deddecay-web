@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
   if (!fanMomentsEnabled()) return NextResponse.json({ error: "Not Found" }, { status: 404 });
   const deps = buildDeps();
   if (!deps) {
-    console.error("[fan-upload] 必須環境変数が未設定です (GOOGLE_OAUTH_* / FAN_UPLOAD_SECRET / TURNSTILE_SECRET_KEY)");
+    console.error("[fan-upload] 必須環境変数が未設定です (R2_* / FAN_UPLOAD_SECRET / TURNSTILE_SECRET_KEY)");
     return NextResponse.json({ error: "現在、投稿の受付を準備中です" }, { status: 503 });
   }
 

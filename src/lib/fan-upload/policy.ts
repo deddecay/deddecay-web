@@ -58,6 +58,10 @@ export const ACCEPT_ATTRIBUTE = Object.keys(FORMATS)
 
 export const GIB = 1024 * 1024 * 1024;
 
+// R2 マルチパートアップロードの 1 パートのサイズ（最後のパート以外は 5 MiB 以上が必要）。
+// 4GB のファイルでも 256 パート程度に収まる
+export const PART_SIZE = 16 * 1024 * 1024;
+
 export type UploadLimits = {
   maxFiles: number;
   maxFileBytes: number;
@@ -75,7 +79,7 @@ export const FIELD_LIMITS = {
   fileName: 200,
 } as const;
 
-// 同意文の版。文面を変えたら更新する（Drive 上のファイルに記録される）
+// 同意文の版。文面を変えたら更新する（投稿メタデータ manifest.json に記録される）
 export const CONSENT_VERSION = "2026-10-v1";
 
 export type DeclaredFile = { name: string; size: number; type: string };
@@ -133,7 +137,7 @@ export const checkDeclaredFiles = (
   return { ok: true, totalBytes: total };
 };
 
-// アップロード後に Drive から取得した先頭バイトの検査
+// アップロード後に保存先から取得した先頭バイトの検査
 export const matchesMagic = (ext: string, head: Uint8Array): boolean => {
   const rule = FORMATS[ext.toLowerCase()];
   return rule ? rule.magic(head) : false;
@@ -156,6 +160,30 @@ export const sanitizeFileName = (fileName: string, maxLength = 100): string => {
   const safeBase = sanitizeSegment(base, maxLength);
   return ext ? `${safeBase}.${ext}` : safeBase;
 };
+
+// ── LIVE の投稿受付期間 ────────────────────────────────
+// LIVE への投稿は、開催日時から 30 日間（暦月ではなく 30 × 24 時間）だけ受け付ける。
+// 開催前・30 日を超えた LIVE は選択肢に出さず、サーバーでも拒否する。「その他」は対象外。
+export const LIVE_POST_WINDOW_DAYS = 30;
+const LIVE_POST_WINDOW_MS = LIVE_POST_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+
+// 開催日時（ISO 文字列）に対して今が受付期間内か。日時が不明・不正なら受け付けない
+export const isLivePostable = (eventAt: string | undefined, nowMs: number): boolean => {
+  if (!eventAt) return false;
+  const start = new Date(eventAt).getTime();
+  if (Number.isNaN(start)) return false;
+  return nowMs >= start && nowMs < start + LIVE_POST_WINDOW_MS;
+};
+
+// LIVE の一覧から、今投稿できるものだけを残す。開催日時は表示と同じ eventDate（なければ publishedAt）
+export const postableLives = <T extends { eventDate?: string; publishedAt?: string }>(
+  entries: readonly T[],
+  nowMs: number
+): T[] => entries.filter((entry) => isLivePostable(entry.eventDate ?? entry.publishedAt, nowMs));
+
+// ページ描画用: 現在時刻での postableLives（コンポーネント内で Date.now を呼ばないための薄いラッパー）
+export const postableLivesNow = <T extends { eventDate?: string; publishedAt?: string }>(entries: readonly T[]): T[] =>
+  postableLives(entries, Date.now());
 
 export type FormTarget =
   | { kind: "live"; liveId: string }

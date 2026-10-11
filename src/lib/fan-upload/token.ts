@@ -1,14 +1,18 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 // 投稿(post)ごとの署名トークン。init で発行し、complete で検証する。
-// 内容: postId / 申告ファイル数 / 申告合計サイズ / 期限。クライアントは改ざんできない。
+// 内容: postId / 申告ファイル数 / 申告合計サイズ / 保存先プレフィックス / 期限。クライアントは改ざんできない。
 
 export type PostTokenPayload = {
   pid: string;
   n: number;
   total: number;
+  // 保存先の R2 プレフィックス（fan-moments/live/{liveId}/{postId} または fan-moments/other/{postId}）
+  k?: string;
   exp: number; // epoch ms
 };
+
+const PREFIX_PATTERN = /^fan-moments\/(?:live\/[A-Za-z0-9_-]{1,64}\/|other\/)[A-Za-z0-9_-]{8,40}$/;
 
 const TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -46,6 +50,7 @@ export const verifyPostToken = (
       !/^[A-Za-z0-9_-]{8,40}$/.test(payload.pid) ||
       !Number.isInteger(payload.n) ||
       !Number.isFinite(payload.total) ||
+      (payload.k !== undefined && (typeof payload.k !== "string" || !PREFIX_PATTERN.test(payload.k))) ||
       typeof payload.exp !== "number" ||
       payload.exp < now
     ) {
