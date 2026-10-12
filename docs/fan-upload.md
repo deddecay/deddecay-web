@@ -103,6 +103,9 @@ LIVE の選択肢は microCMS の `entries`（type=live）が唯一の正本。
 | `FAN_UPLOAD_MAX_FILES` / `_MAX_FILE_GB` / `_MAX_POST_GB` | 任意。既定 10 件 / 4GB / 8GB |
 | `FAN_UPLOAD_APP_CAP_GB` / `_DAILY_GB_PER_IP` | 任意。既定 50GB / 20GB。`APP_CAP` は R2 の保存量がこの値を超えたら新規投稿を断る安全弁（R2 自体に容量上限は無い）。自動削除はしない |
 | `FAN_UPLOAD_ALLOWED_ORIGINS` | 任意。追加で許可するオリジン（カンマ区切り） |
+| `GOOGLE_OAUTH_CLIENT_ID` / `_CLIENT_SECRET` / `_REFRESH_TOKEN` | Drive 転送用。未設定の間は転送しない（アップロードは動く） |
+| `CRON_SECRET` | 16 文字以上のランダム文字列。Vercel Cron が `/api/fan-upload/transfer` を呼ぶときの認証（未設定なら 404） |
+| `FAN_MOMENTS_R2_RETENTION_DAYS` / `FAN_MOMENTS_TRANSFER_BUDGET_SEC` | 任意。Drive 確認後の R2 保持日数（既定 7）/ 1 回の実行で転送に使う秒数（既定 40。関数の上限は 60 秒） |
 
 必須が欠けている場合、API は 503（「準備中」）を返す。
 
@@ -135,10 +138,55 @@ LIVE の選択肢は microCMS の `entries`（type=live）が唯一の正本。
 - 投稿者を含め、他人が閲覧する機能は無い。メールにファイルへの URL は載せない
 - R2 の使用量は Cloudflare ダッシュボードの R2 メトリクスで見られる。通知メールにもアプリの概算使用量を載せる
 
-## Google OAuth トークンの発行・更新（旧 Drive 保存用・現在は使っていない）
+## Google Drive への転送（最終保存先）
 
-Drive に保存していた旧実装用。R2 への置換後は不要。`scripts/dd-upload-oauth.mjs` は残してあるが、環境変数 `GOOGLE_OAUTH_*` は使われない。
-保存先アカウントのリフレッシュトークンは `scripts/dd-upload-oauth.mjs` で発行する（ローカルで手動実行）。
+R2 は受付・一時保管・転送バッファ、**Google Drive が最終保存先**。アップロード〜通知〜完了画面の流れは変えず、
+その後ろに「R2 → Drive」の転送を足している（`src/lib/fan-upload/transfer.ts`）。
+
+```
+マイドライブ / 03_media / Fan moments /
+  {開催日} {LIVE名} /          例: 2026.09.20 Spotify O-Crest『CASCADE』
+    20261012-152405_1_IMG_1355.jpeg   ← R2 と同じ名前（投稿日時_連番_元のファイル名）
+  その他 /
+    ...
+```
+
+- 投稿ごとのサブフォルダは作らず、LIVE フォルダに素材を直接置く。ファイル名の先頭の投稿日時で時系列に並び、他の人の `IMG_1355` とも衝突しない
+- LIVE フォルダは名前ではなく `appProperties.liveId` で探す（LIVE 名が後から変わっても別フォルダが増えない）。ファイルの「説明」に、区分・投稿日時・メッセージ・元のファイル名・投稿 ID を入れる
+  （Drive アプリの詳細で読める）。同じ内容のうち機械が使う `ddKey`（`{uploadId}:{連番}`）などは `appProperties` に入る
+- 共有設定は一切変更しない（フォルダの共有範囲は `03_media` を引き継ぐ）
+
+### 流れ
+
+1. `complete` が R2 の保存を確定して通知メールを送る（従来どおり）。その応答を返した**あと**に、同じ投稿の転送を 1 回始める（`after()`）
+2. 転送は R2 から 32MiB ずつ範囲読みして Drive の resumable セッションへ送る。進捗（セッション URL とオフセット）はチャンクごとに
+   その投稿の `drive.json` へ保存するので、時間切れ・通信断のあとは続きから送る。`manifest.json` には触れない
+3. **日次 Cron**（`vercel.json`、03:00 JST）が `GET /api/fan-upload/transfer` を呼び、未転送・失敗した投稿の再試行と R2 の掃除を行う（Hobby は Cron が 1 日 1 回まで）
+4. Drive 設定（`GOOGLE_OAUTH_*`）が無い間は、転送は何もしない（アップロードには影響しない）
+
+- **成功の判定**: ファイルごとに、Drive の最終応答の `size` が R2 のサイズと一致すること。`fileId` と `md5Checksum` を `drive.json` に記録する。全ファイルが揃うと `state: "done"`
+- **重複の防止**: 作成前に `ddKey` で Drive を検索 / `drive.json` の更新は R2 の条件付き書き込み（ETag）とリース（90 秒）で排他 / 保存済みセッションの続きから送る
+- **失敗**: R2 の原本には触れない。試行回数とエラーを記録し、次の実行で再試行する。3 回失敗または 24 時間続くと `[Fan moments] Drive転送に失敗` のメールを 1 回送る
+  （トークン失効の再認証が必要な場合もここで気づける）
+
+### R2 のクリーン（アプリが行う。R2 のライフサイクルルールでは消さない）
+
+- 対象は、全ファイルが Drive で確認できた投稿で、**確認（`doneAt`）から 7 日**（`FAN_MOMENTS_R2_RETENTION_DAYS` で変更可）経過したものだけ
+- 消す直前に、Drive の実ファイルを 1 件ずつ再確認する（存在する・ゴミ箱でない・サイズが一致・同じ投稿の `ddKey`）。1 つでも満たさなければ消さない
+- 転送に失敗している・未転送の投稿は、何日経っても消さない。削除は原本 → `drive.json` → `manifest.json` の順
+- 完了しなかったマルチパートは、従来どおり R2 側の「Default Multipart Abort Rule（7 日）」が担当する（別の仕組み）
+
+### 初回の準備（人間操作）
+
+1. Google Cloud Console の OAuth を「本番環境」に公開済みであること（スコープは `drive.file` のみ）
+2. 公開**後**に、下記のスクリプトでリフレッシュトークンを発行し直し、Vercel（Production）の `GOOGLE_OAUTH_*` と `CRON_SECRET` を設定する
+3. 初回の転送でアプリがマイドライブ直下に `Fan moments` フォルダを作る。**そのフォルダを `03_media` へ 1 回だけ移動**する
+   （`drive.file` は既存フォルダの中身を見られないため。移動後もアプリは同じフォルダを `appProperties` で見つけて使い続ける）
+4. 実機（iPhone）で `Fan moments → R2 → Drive` を確認してから、公開の判断をする
+
+## Google OAuth トークンの発行・更新
+
+`GOOGLE_OAUTH_*`（Drive 転送で使う）のリフレッシュトークンは `scripts/dd-upload-oauth.mjs` で発行する（ローカルで手動実行）。
 
 ```
 node scripts/dd-upload-oauth.mjs --login-hint <保存先Googleアカウント> [--targets production,preview] [--no-deliver]
@@ -148,8 +196,8 @@ node scripts/dd-upload-oauth.mjs --login-hint <保存先Googleアカウント> [
   環境変数 `DD_UPLOAD_OAUTH_CLIENT_JSON` で変更可）。ファイル権限が 600 でなければ中断する。JSON・トークンは Git に入れない
 - ブラウザで Google の認証画面が開く。保存先アカウントで `drive.file` に同意する（5 分以内）
 - 取得したリフレッシュトークンは画面・ログ・ファイルに出さず、Vercel CLI の標準入力へ直接渡す（`--no-deliver` なら保存しない）
-- 現在の OAuth アプリは「テスト」状態（内部運用のため本番公開しない方針）。**テスト状態のリフレッシュトークンは約 7 日で失効する可能性がある**
-  ため、DD UPLOAD の保存が失敗する（502）ようになったら、このスクリプトを再実行して更新する
+- OAuth アプリは「本番環境」で運用する（Fan moments を公開する機能のため）。「テスト」状態のリフレッシュトークンは約 7 日で失効するので、
+  **本番公開より前に発行したトークンは、公開後に発行し直す**。失効した場合は Drive 転送が失敗し、失敗通知メールが届く（R2 の原本は残る）
 - Production と Preview はそれぞれ別のトークンになる（どちらも有効）
 
 ## セキュリティ境界
@@ -164,7 +212,8 @@ node scripts/dd-upload-oauth.mjs --login-hint <保存先Googleアカウント> [
 
 - 投稿が届くと CONTACT 宛先に `[Fan moments] LIVE / n件`（または `その他`）の件名でメールが届く。Cloudflare ダッシュボードの R2 で、メールに書かれたフォルダを確認する
 - R2 の保存量が `FAN_UPLOAD_APP_CAP_GB` を超えると、新規投稿を自動で断る（安全弁。既存データは削除しない）
-- 自動削除・保管期間は未設定。不適切な投稿は R2 上で削除する（サイト側の操作は不要）
+- 日常の閲覧・ダウンロードは Google Drive（`03_media/Fan moments`）で行う。R2 は直接見に行かなくてよい
+- R2 の正常投稿は、Drive 転送の確認から 7 日後にアプリが自動削除する（転送できていない投稿は削除しない）。不適切な投稿は Drive 側で削除する
 - 同意文を変更したら `src/lib/fan-upload/policy.ts` の `CONSENT_VERSION` を更新する
 
 ## テスト

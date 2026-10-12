@@ -268,6 +268,52 @@ export class R2Client {
     return res.status === 404 ? null : res.text();
   }
 
+  // 本文と ETag を一緒に取得する（条件付き書き込みの前提）
+  async getObject(key: string): Promise<{ text: string; etag: string } | null> {
+    const res = await this.send("GET", this.objectPath(key), {}, { allow404: true });
+    if (res.status === 404) return null;
+    return { text: await res.text(), etag: res.headers.get("etag") ?? "" };
+  }
+
+  // 条件付き書き込み。ifMatch=ETag なら「その版のときだけ」、ifNoneMatch=true なら「存在しないときだけ」書く。
+  // 条件が合わなければ R2Error(status 412)。同時実行の排他に使う
+  async putObjectIf(
+    key: string,
+    body: string | Uint8Array,
+    contentType: string,
+    cond: { ifMatch?: string; ifNoneMatch?: boolean }
+  ): Promise<string> {
+    const headers: Record<string, string> = { "Content-Type": contentType };
+    if (cond.ifMatch) headers["If-Match"] = cond.ifMatch;
+    if (cond.ifNoneMatch) headers["If-None-Match"] = "*";
+    const res = await this.send("PUT", this.objectPath(key), {}, { body, headers });
+    return res.headers.get("etag") ?? "";
+  }
+
+  // 任意範囲（両端を含む）の読み出し。Drive への転送でチャンクごとに使う
+  async readRange(key: string, start: number, end: number): Promise<Uint8Array> {
+    const res = await this.send("GET", this.objectPath(key), {}, { headers: { Range: `bytes=${start}-${end}` } });
+    return new Uint8Array(await res.arrayBuffer());
+  }
+
+  // prefix 配下のキー一覧
+  async listKeys(prefix: string): Promise<{ key: string; size: number }[]> {
+    const out: { key: string; size: number }[] = [];
+    let token = "";
+    for (;;) {
+      const query: Record<string, string> = { "list-type": "2", prefix };
+      if (token) query["continuation-token"] = token;
+      const xml = await (await this.send("GET", this.bucketPath(), query)).text();
+      for (const block of blocks(xml, "Contents")) {
+        out.push({ key: (tagText(block, "Key") ?? "").replace(/&amp;/g, "&"), size: Number(tagText(block, "Size") ?? 0) });
+      }
+      if (tagText(xml, "IsTruncated") !== "true") break;
+      token = tagText(xml, "NextContinuationToken") ?? "";
+      if (!token) break;
+    }
+    return out;
+  }
+
   async head(key: string): Promise<{ size: number } | null> {
     const res = await this.send("HEAD", this.objectPath(key), {}, { allow404: true });
     if (res.status === 404) return null;

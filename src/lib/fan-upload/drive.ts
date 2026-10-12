@@ -209,6 +209,186 @@ export class DriveClient {
     return location;
   }
 
+  // ── R2 → Drive 転送用（Fan moments） ───────────────────
+  // 保存先: マイドライブの「Fan moments」（アプリが作成し、オーナーが 03_media へ 1 回だけ移動する）。
+  // フォルダは名前ではなく appProperties で見つける（移動・改名しても同じフォルダを使い続ける）。
+
+  private async ensureChildFolder(
+    parentId: string | null,
+    match: Record<string, string>,
+    name: string
+  ): Promise<string> {
+    const cacheKey = `${parentId ?? ""}|${JSON.stringify(match)}`;
+    const cached = this.folderCache.get(cacheKey);
+    if (cached && cached.at > this.now() - 300_000) return cached.id;
+
+    const conditions = Object.entries(match).map(
+      ([k, v]) => `appProperties has { key='${escapeQuery(k)}' and value='${escapeQuery(v)}' }`
+    );
+    const query = [
+      `mimeType='${FOLDER_MIME}'`,
+      "trashed=false",
+      ...(parentId ? [`'${parentId}' in parents`] : []),
+      ...conditions,
+    ].join(" and ");
+
+    const find = async () => (await this.listAll(query, "id"))[0]?.id as string | undefined;
+    let id = await find();
+    if (!id) {
+      const body = {
+        name,
+        mimeType: FOLDER_MIME,
+        ...(parentId ? { parents: [parentId] } : {}),
+        appProperties: { app: "fanupload", ...match },
+      };
+      const created = await this.json<{ id: string }>(`${API}/files?fields=id`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      // 同時実行で 2 つ作られた場合は、作成日時が最も早いものに揃え、自分のものは（空なので）ゴミ箱へ
+      const earliest = await find();
+      if (earliest && earliest !== created.id) {
+        await this.trash(created.id).catch(() => {});
+        id = earliest;
+      } else {
+        id = created.id;
+      }
+    }
+    this.folderCache.set(cacheKey, { id, at: this.now() });
+    return id;
+  }
+
+  ensureFanMomentsRoot(): Promise<string> {
+    return this.ensureChildFolder(null, { role: "fmroot" }, "Fan moments");
+  }
+
+  async ensureLiveFolder(liveId: string, name: string): Promise<string> {
+    const root = await this.ensureFanMomentsRoot();
+    return this.ensureChildFolder(root, { role: "live", liveId }, name);
+  }
+
+  async ensureOtherFolder(): Promise<string> {
+    const root = await this.ensureFanMomentsRoot();
+    return this.ensureChildFolder(root, { role: "other" }, "その他");
+  }
+
+  async findByKey(ddKey: string): Promise<{ id: string; size: number; md5: string }[]> {
+    const rows = await this.listAll(
+      `trashed=false and appProperties has { key='ddKey' and value='${escapeQuery(ddKey)}' }`,
+      "id,size,md5Checksum"
+    );
+    return rows.map((row) => ({
+      id: String(row.id),
+      size: Number(row.size ?? 0),
+      md5: String(row.md5Checksum ?? ""),
+    }));
+  }
+
+  // 実ファイルの存在・サイズ・ゴミ箱の状態の再確認（R2 を消す前に使う）
+  async getFileInfo(
+    fileId: string
+  ): Promise<{ id: string; size: number; trashed: boolean; md5: string; ddKey: string } | null> {
+    try {
+      const data = await this.json<{
+        id: string;
+        size?: string;
+        trashed?: boolean;
+        md5Checksum?: string;
+        appProperties?: Record<string, string>;
+      }>(`${API}/files/${encodeURIComponent(fileId)}?fields=id,size,trashed,md5Checksum,appProperties`);
+      return {
+        id: data.id,
+        size: Number(data.size ?? 0),
+        trashed: data.trashed === true,
+        md5: data.md5Checksum ?? "",
+        ddKey: data.appProperties?.ddKey ?? "",
+      };
+    } catch (err) {
+      if (err instanceof DriveError && err.status === 404) return null;
+      throw err;
+    }
+  }
+
+  // サーバーから送る resumable セッション（ブラウザ用の Origin は付けない）
+  async createTransferSession(params: {
+    name: string;
+    parentId: string;
+    size: number;
+    mimeType: string;
+    description: string;
+    appProperties: Record<string, string>;
+  }): Promise<string> {
+    // 完了時の応答に size / md5Checksum を含めるため fields を指定する（転送成功の判定に使う）
+    const res = await this.request(`${UPLOAD_API}/files?uploadType=resumable&fields=id,size,md5Checksum`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=UTF-8",
+        "X-Upload-Content-Type": params.mimeType,
+        "X-Upload-Content-Length": String(params.size),
+      },
+      body: JSON.stringify({
+        name: params.name,
+        parents: [params.parentId],
+        mimeType: params.mimeType,
+        description: params.description,
+        appProperties: { app: "fanupload", ...params.appProperties },
+      }),
+    });
+    const location = res.headers.get("location");
+    if (!location || !location.startsWith("https://www.googleapis.com/")) {
+      throw new DriveError("resumable session: no valid Location", 502);
+    }
+    return location;
+  }
+
+  // 1 チャンクを送る。start はこのチャンクの先頭オフセット、total はファイル全体のサイズ。
+  // 308 は「続きを送れ」、200/201 は完了。308 のリダイレクトを fetch に追わせないため redirect: "manual"
+  async putChunk(
+    sessionUrl: string,
+    bytes: Uint8Array,
+    start: number,
+    total: number
+  ): Promise<{ done: false; next: number } | { done: true; id: string; size: number; md5: string }> {
+    const end = start + bytes.byteLength - 1;
+    const res = await this.fetchImpl(sessionUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Length": String(bytes.byteLength),
+        "Content-Range": `bytes ${start}-${end}/${total}`,
+      },
+      body: bytes as unknown as BodyInit,
+      redirect: "manual",
+      signal: AbortSignal.timeout(120_000),
+    });
+    return this.readChunkResponse(res, total);
+  }
+
+  // セッションが受け取り済みのオフセットを問い合わせる（通信断のあとの再開用）
+  async queryOffset(sessionUrl: string, total: number): Promise<{ done: false; next: number } | { done: true; id: string; size: number; md5: string }> {
+    const res = await this.fetchImpl(sessionUrl, {
+      method: "PUT",
+      headers: { "Content-Length": "0", "Content-Range": `bytes */${total}` },
+      redirect: "manual",
+      signal: AbortSignal.timeout(30_000),
+    });
+    return this.readChunkResponse(res, total);
+  }
+
+  private async readChunkResponse(res: Response, total: number) {
+    if (res.status === 308) {
+      const range = res.headers.get("range"); // 例: bytes=0-33554431
+      const m = range ? /bytes=0-(\d+)/.exec(range) : null;
+      return { done: false as const, next: m ? Number(m[1]) + 1 : 0 };
+    }
+    if (res.status === 200 || res.status === 201) {
+      const data = (await res.json()) as { id?: string; size?: string; md5Checksum?: string };
+      if (!data.id) throw new DriveError("chunk upload: no file id", 502);
+      return { done: true as const, id: data.id, size: Number(data.size ?? total), md5: data.md5Checksum ?? "" };
+    }
+    throw new DriveError(`drive chunk upload failed (${res.status})`, res.status);
+  }
+
   async listPostFiles(postId: string): Promise<DriveFile[]> {
     const rows = await this.listAll(
       `trashed=false and appProperties has { key='postId' and value='${escapeQuery(postId)}' }`,

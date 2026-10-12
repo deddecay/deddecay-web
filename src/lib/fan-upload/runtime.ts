@@ -1,10 +1,28 @@
 import { getLiveById, formatLiveDate } from "../microcms";
 import { sendNotification } from "../mail";
 import { getR2Client } from "./r2";
+import { getDriveClient } from "./drive";
+import { DEFAULT_RETENTION_DAYS, type TransferDeps } from "./transfer";
 import { consume } from "./ratelimit";
 import { verifyTurnstile } from "./turnstile";
 import { GIB } from "./policy";
 import { readAllowedOrigins, readLimits, type Deps } from "./service";
+
+// R2 → Drive 転送用の Deps。R2 か Google OAuth の設定が欠けていれば null（転送は何もしない。アップロードには影響しない）
+export const buildTransferDeps = (): TransferDeps | null => {
+  const store = getR2Client();
+  const drive = getDriveClient();
+  if (!store || !drive) return null;
+  const days = Number(process.env.FAN_MOMENTS_R2_RETENTION_DAYS);
+  const retentionDays = Number.isFinite(days) && days >= 1 ? days : DEFAULT_RETENTION_DAYS;
+  return { store, drive, sendMail: sendNotification, now: Date.now, retentionMs: retentionDays * 24 * 60 * 60 * 1000 };
+};
+
+// 1 回の実行で転送に使ってよい時間（ミリ秒）。maxDuration（60 秒）より短くしておく
+export const transferBudgetMs = (): number => {
+  const sec = Number(process.env.FAN_MOMENTS_TRANSFER_BUDGET_SEC);
+  return (Number.isFinite(sec) && sec >= 5 && sec <= 280 ? sec : 40) * 1000;
+};
 
 // 本番用 Deps を環境変数から組み立てる。必須設定が欠けていれば null（API は 503 を返す）。
 export const buildDeps = (): Deps | null => {
