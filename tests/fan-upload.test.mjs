@@ -19,6 +19,7 @@ import { consume, _resetMemoryForTest } from "../src/lib/fan-upload/ratelimit.ts
 import { DriveClient } from "../src/lib/fan-upload/drive.ts";
 import { R2Client, R2Error, signV4 } from "../src/lib/fan-upload/r2.ts";
 import { handleInit, handleComplete, readAllowedOrigins } from "../src/lib/fan-upload/service.ts";
+import { sendNotification } from "../src/lib/mail.ts";
 import { uploadFile, UploadFatalError } from "../src/lib/fan-upload/client-upload.ts";
 import { fanMomentsEnabled, fanMomentsPublic } from "../src/lib/fan-upload/flags.ts";
 
@@ -703,7 +704,7 @@ test("complete: 全ファイル保存済みなら結合・検証し、1 投稿 =
   assert.equal(state.completed.length, 2);
   assert.equal(state.mails.length, 1); // 2 ファイルでも 1 通
   const mail = state.mails[0];
-  assert.equal(mail.subject, "[DD UPLOAD]LIVE 2件");
+  assert.equal(mail.subject, "[Fan moments] LIVE / 2件");
   assert.ok(!("attachments" in mail)); // ファイル自体は添付しない
   for (const needle of [
     init.body.postId,
@@ -737,7 +738,7 @@ test("complete: その他投稿のメールは「その他」と分かる", asyn
   const init = await handleInit(validBody({ kind: "other", liveId: undefined }), ctx, deps);
   putParts(init.body, [[1000], [500]]);
   assert.equal((await handleComplete({ token: init.body.token }, ctx, deps)).status, 200);
-  assert.equal(state.mails[0].subject, "[DD UPLOAD]その他 2件");
+  assert.equal(state.mails[0].subject, "[Fan moments] その他 / 2件");
   assert.ok(state.mails[0].text.includes("区分: その他"));
   assert.ok(state.mails[0].text.includes(`フォルダ: fan-moments/other/${init.body.postId}/`));
 });
@@ -833,6 +834,37 @@ test("complete: メール失敗時も保存は成功扱い。未通知のまま�
   assert.equal(retry.body.mailed, true);
   assert.equal(state.mails.length, 1);
   assert.equal(state.completed.length, 2); // 結合は 1 回だけ
+});
+
+test("通知メールの送信元: FAN_MOMENTS_FROM_EMAIL があれば優先し、無ければ CONTACT_FROM_EMAIL（CONTACT は影響を受けない）", async () => {
+  const keys = ["RESEND_API_KEY", "CONTACT_TO_EMAIL", "CONTACT_FROM_EMAIL", "FAN_MOMENTS_FROM_EMAIL"];
+  const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  const realFetch = globalThis.fetch;
+  const sent = [];
+  globalThis.fetch = async (_url, init) => {
+    sent.push(JSON.parse(init.body));
+    return new Response(JSON.stringify({ id: "mail-1" }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    process.env.RESEND_API_KEY = "re_test_key";
+    process.env.CONTACT_TO_EMAIL = "owner@example.com";
+    process.env.CONTACT_FROM_EMAIL = "onboarding@resend.dev";
+    delete process.env.FAN_MOMENTS_FROM_EMAIL;
+    assert.deepEqual(await sendNotification({ subject: "s", text: "t" }), { ok: true });
+    assert.equal(sent[0].from, "onboarding@resend.dev"); // 未設定なら従来どおり
+
+    process.env.FAN_MOMENTS_FROM_EMAIL = "deddecay Fan moments <fanmoments@deddecay.tokyo>";
+    assert.deepEqual(await sendNotification({ subject: "[Fan moments] LIVE / 2件", text: "t" }), { ok: true });
+    assert.equal(sent[1].from, "deddecay Fan moments <fanmoments@deddecay.tokyo>");
+    assert.equal(sent[1].subject, "[Fan moments] LIVE / 2件");
+    assert.equal(sent[1].to, "owner@example.com"); // 宛先は変わらない
+  } finally {
+    globalThis.fetch = realFetch;
+    for (const k of keys) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  }
 });
 
 test("許可オリジン: 本番ドメインを含み、任意オリジンは含まない", () => {

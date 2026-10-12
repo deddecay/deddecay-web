@@ -5,7 +5,7 @@ deddecay へ動画・写真・ファンアート等を送る公式アップロ�
 
 > 名称: ユーザー向けの表示名は「Fan moments」（トップのナビ、ページの見出し・タブ名、案内文、完了画面）。URL は `/upload`。
 > 内部識別子（`src/lib/fan-upload/`、`/api/fan-upload/*`、`FAN_UPLOAD_*` 環境変数、R2 バケット名、本ファイル名）は表示名と分離しており、
-> `fan-upload` のまま。運営側（管理者向け）の通知メールの件名 `[DD UPLOAD]` は、運用の識別用としてそのまま残している。
+> `fan-upload` のまま。通知メールの件名は `[Fan moments] LIVE / 2件`（または `その他`）、送信元の表示名は `deddecay Fan moments`。
 > `drive.ts` と `scripts/dd-upload-oauth.mjs`（Drive 保存の旧実装）はコードとして残してあるが、現在の経路では使っていない。
 
 ## 公開状態（フラグ）
@@ -98,6 +98,7 @@ LIVE の選択肢は microCMS の `entries`（type=live）が唯一の正本。
 | `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile のシークレット |
 | `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | Turnstile のサイトキー（公開値。**変更後は再デプロイが必要**） |
 | `RESEND_API_KEY` / `CONTACT_TO_EMAIL` / `CONTACT_FROM_EMAIL` | 通知メール（CONTACT と共通） |
+| `FAN_MOMENTS_FROM_EMAIL` | 任意。通知メールの送信元。例: `deddecay Fan moments <fanmoments@deddecay.tokyo>`（Resend で認証済みのドメインが必要）。未設定なら `CONTACT_FROM_EMAIL` を使う。CONTACT フォームの送信元は変わらない |
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | 任意。rate limit をインスタンス間で共有する（未設定時はメモリ内のみ） |
 | `FAN_UPLOAD_MAX_FILES` / `_MAX_FILE_GB` / `_MAX_POST_GB` | 任意。既定 10 件 / 4GB / 8GB |
 | `FAN_UPLOAD_APP_CAP_GB` / `_DAILY_GB_PER_IP` | 任意。既定 50GB / 20GB。`APP_CAP` は R2 の保存量がこの値を超えたら新規投稿を断る安全弁（R2 自体に容量上限は無い）。自動削除はしない |
@@ -161,7 +162,7 @@ node scripts/dd-upload-oauth.mjs --login-hint <保存先Googleアカウント> [
 
 ## 運用
 
-- 投稿が届くと CONTACT 宛先に `[DD UPLOAD] ...` の件名でメールが届く。Cloudflare ダッシュボードの R2 で、メールに書かれたフォルダを確認する
+- 投稿が届くと CONTACT 宛先に `[Fan moments] LIVE / n件`（または `その他`）の件名でメールが届く。Cloudflare ダッシュボードの R2 で、メールに書かれたフォルダを確認する
 - R2 の保存量が `FAN_UPLOAD_APP_CAP_GB` を超えると、新規投稿を自動で断る（安全弁。既存データは削除しない）
 - 自動削除・保管期間は未設定。不適切な投稿は R2 上で削除する（サイト側の操作は不要）
 - 同意文を変更したら `src/lib/fan-upload/policy.ts` の `CONSENT_VERSION` を更新する

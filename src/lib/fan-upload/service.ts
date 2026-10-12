@@ -338,7 +338,7 @@ const buildMail = (manifest: Manifest, accepted: ManifestFile[], rejected: numbe
     ...accepted.map((f) => `- ${f.originalName} (${formatBytes(f.declaredSize)})`),
   ];
   return {
-    subject: `[DD UPLOAD]${target.kind === "live" ? "LIVE" : "その他"} ${accepted.length}件`,
+    subject: `[Fan moments] ${target.kind === "live" ? "LIVE" : "その他"} / ${accepted.length}件`,
     text: lines.join("\n"),
   };
 };
