@@ -319,7 +319,7 @@ export default function FanUploadForm({ lives, initialLiveId, limits }: Props) {
       <div className="flex flex-col items-center gap-6 py-6 text-center">
         <p className="text-sm tracking-[0.15em] text-white/85">ありがとうございます！</p>
         <p className="text-xs text-white/65 leading-relaxed">
-          アップロードいただいた写真や動画も引き続き自由にお使いください！
+          アップロードいただいた動画も引き続き自由にお使いください！
         </p>
         {mailNote && (
           <p className="text-[10px] text-white/40 leading-relaxed">※ 受付通知の送信に時間がかかっています。ファイルは保存済みです。</p>
