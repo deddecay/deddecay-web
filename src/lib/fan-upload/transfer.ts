@@ -59,6 +59,7 @@ export type TransferDeps = {
     DriveClient,
     | "ensureLiveFolder"
     | "ensureOtherFolder"
+    | "ensureMediaFolder"
     | "findByKey"
     | "getFileInfo"
     | "createTransferSession"
@@ -118,6 +119,17 @@ const initialState = (manifest: Manifest, accepted: ManifestFile[], now: number)
 });
 
 // ── Drive 側の見え方 ───────────────────────────────────
+
+// 日付単位のフォルダの下を、ファイル種別で分ける: 画像 → photo / 動画 → movie。
+// 種別は投稿時に拡張子で確定して manifest に残っている kind を使い、無ければ MIME で判定する。
+// 画像でも動画でもない（音声など）ものは、日付単位のフォルダ直下に置く（従来どおり）。
+export const mediaFolderOf = (file: Pick<ManifestFile, "kind" | "mime">): "photo" | "movie" | null => {
+  if (file.kind === "image") return "photo";
+  if (file.kind === "video") return "movie";
+  if (file.mime?.startsWith("image/")) return "photo";
+  if (file.mime?.startsWith("video/")) return "movie";
+  return null;
+};
 
 export const liveFolderName = (liveDate: string, liveTitle: string): string =>
   sanitizeSegment(`${liveDate} ${liveTitle}`, 100);
@@ -219,9 +231,11 @@ export const transferUpload = async (
           return "partial";
         }
         if (!fs.sessionUrl) {
+          const media = mediaFolderOf(file);
+          const parentId = media ? await deps.drive.ensureMediaFolder(folderId, media) : folderId;
           fs.sessionUrl = await deps.drive.createTransferSession({
             name: file.storedName,
-            parentId: folderId,
+            parentId,
             size: file.declaredSize,
             mimeType: file.mime,
             description: driveDescription(manifest, file),

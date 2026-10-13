@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { transferUpload, cleanupUpload, sweep, liveFolderName, driveDescription } from "../src/lib/fan-upload/transfer.ts";
+import { transferUpload, cleanupUpload, sweep, liveFolderName, driveDescription, mediaFolderOf } from "../src/lib/fan-upload/transfer.ts";
 import { DriveClient } from "../src/lib/fan-upload/drive.ts";
 import { R2Client } from "../src/lib/fan-upload/r2.ts";
 
@@ -67,6 +67,10 @@ const makeDrive = (clock) => {
     ensureOtherFolder: async () => {
       s.folders.push(["other"]);
       return "folder-other";
+    },
+    ensureMediaFolder: async (parentId, media) => {
+      s.folders.push(["media", parentId, media]);
+      return `${parentId}/${media}`;
     },
     findByKey: async (ddKey) =>
       [...s.files.values()].filter((f) => f.ddKey === ddKey && !f.trashed).map((f) => ({ id: f.id, size: f.size, md5: f.md5 })),
@@ -162,10 +166,13 @@ test("LIVE 投稿: LIVE フォルダへ元の並びの名前で保存し、メ�
   const { store, drive, deps, bytes, clock } = setup();
   assert.equal(await transferUpload(deps, PREFIX, clock.t + 60_000), "done");
 
-  assert.deepEqual(drive.state.folders, [["live", "L1", "2026.09.20 Spotify O-Crest『CASCADE』"]]);
+  assert.deepEqual(drive.state.folders, [
+    ["live", "L1", "2026.09.20 Spotify O-Crest『CASCADE』"],
+    ["media", "folder-live-L1", "photo"],
+  ]);
   const [file] = [...drive.state.files.values()];
   assert.equal(file.params.name, NAME);
-  assert.equal(file.params.parentId, "folder-live-L1");
+  assert.equal(file.params.parentId, "folder-live-L1/photo"); // 日付（LIVE）フォルダの下の photo
   assert.equal(file.params.mimeType, "image/jpeg");
   assert.equal(file.params.appProperties.ddKey, "UP1:0");
   assert.equal(file.params.appProperties.liveId, "L1");
@@ -183,10 +190,86 @@ test("LIVE 投稿: LIVE フォルダへ元の並びの名前で保存し、メ�
   assert.ok(store.objects.has(`${PREFIX}/${NAME}`));
 });
 
+// 複数ファイルの投稿を組み立てる（画像・動画・音声の種別を指定）
+const setupMulti = (specs, manifestOver = {}) => {
+  const ctx = setup({ manifest: manifestOver });
+  const files = specs.map((s, i) => {
+    const storedName = `20261012-152405_${i + 1}_${s.name}`;
+    const key = `${PREFIX}/${storedName}`;
+    ctx.store.put(key, content(100, i + 1));
+    return {
+      index: i,
+      key,
+      storedName,
+      originalName: s.name,
+      declaredSize: 100,
+      mime: s.mime,
+      kind: s.kind,
+      parts: 1,
+      multipartUploadId: "mp",
+      result: "accepted",
+    };
+  });
+  ctx.store.put(`${PREFIX}/manifest.json`, JSON.stringify(manifestOf(manifestOver, files)));
+  return ctx;
+};
+const parentsByName = (drive) =>
+  Object.fromEntries([...drive.state.files.values()].map((f) => [f.params.name.split("_").slice(2).join("_"), f.params.parentId]));
+
+const IMG = { name: "IMG_1355.jpeg", mime: "image/jpeg", kind: "image" };
+const MOV = { name: "IMG_1289.mov", mime: "video/quicktime", kind: "video" };
+
+test("振り分け: 画像のみ → 日付フォルダ配下の photo だけ", async () => {
+  const { drive, deps, clock } = setupMulti([IMG, { ...IMG, name: "b.png", mime: "image/png" }]);
+  assert.equal(await transferUpload(deps, PREFIX, clock.t + 60_000), "done");
+  assert.deepEqual(parentsByName(drive), { "IMG_1355.jpeg": "folder-live-L1/photo", "b.png": "folder-live-L1/photo" });
+  assert.deepEqual(drive.state.folders.filter((f) => f[0] === "media"), [
+    ["media", "folder-live-L1", "photo"],
+    ["media", "folder-live-L1", "photo"],
+  ]);
+  assert.ok(!drive.state.folders.some((f) => f[2] === "movie")); // movie は作らない
+});
+
+test("振り分け: 動画のみ → movie だけ", async () => {
+  const { drive, deps, clock } = setupMulti([MOV, { ...MOV, name: "c.mp4", mime: "video/mp4" }]);
+  assert.equal(await transferUpload(deps, PREFIX, clock.t + 60_000), "done");
+  assert.deepEqual(parentsByName(drive), { "IMG_1289.mov": "folder-live-L1/movie", "c.mp4": "folder-live-L1/movie" });
+  assert.ok(!drive.state.folders.some((f) => f[2] === "photo"));
+});
+
+test("振り分け: 画像と動画の混在 → それぞれ photo / movie（ファイル名・LIVEフォルダ名は従来どおり）", async () => {
+  const { drive, deps, clock } = setupMulti([IMG, MOV]);
+  assert.equal(await transferUpload(deps, PREFIX, clock.t + 60_000), "done");
+  assert.deepEqual(parentsByName(drive), { "IMG_1355.jpeg": "folder-live-L1/photo", "IMG_1289.mov": "folder-live-L1/movie" });
+  // 日付より上の階層（LIVE フォルダ）は従来どおり
+  assert.deepEqual(drive.state.folders[0], ["live", "L1", "2026.09.20 Spotify O-Crest『CASCADE』"]);
+  // 保存名は R2 と同じ（先頭の投稿日時_連番_元の名前）
+  assert.deepEqual(
+    [...drive.state.files.values()].map((f) => f.params.name).sort(),
+    ["20261012-152405_1_IMG_1355.jpeg", "20261012-152405_2_IMG_1289.mov"]
+  );
+});
+
+test("振り分け: 「その他」も同じ（その他/photo・その他/movie）。種別が不明でも MIME で判定する", async () => {
+  const { drive, deps, clock } = setupMulti(
+    [{ ...IMG, kind: "" }, { ...MOV, kind: "" }],
+    { target: { kind: "other" } }
+  );
+  assert.equal(await transferUpload(deps, PREFIX, clock.t + 60_000), "done");
+  assert.deepEqual(parentsByName(drive), { "IMG_1355.jpeg": "folder-other/photo", "IMG_1289.mov": "folder-other/movie" });
+});
+
+test("振り分け: 画像でも動画でもないもの（音声）は日付フォルダ直下のまま", async () => {
+  const { drive, deps, clock } = setupMulti([{ name: "a.mp3", mime: "audio/mpeg", kind: "audio" }]);
+  assert.equal(await transferUpload(deps, PREFIX, clock.t + 60_000), "done");
+  assert.deepEqual(parentsByName(drive), { "a.mp3": "folder-live-L1" });
+  assert.equal(mediaFolderOf({ kind: "audio", mime: "audio/mpeg" }), null);
+});
+
 test("その他の投稿は「その他」フォルダへ保存する", async () => {
   const { drive, deps, clock } = setup({ manifest: { target: { kind: "other" } } });
   assert.equal(await transferUpload(deps, PREFIX, clock.t + 60_000), "done");
-  assert.deepEqual(drive.state.folders, [["other"]]);
+  assert.deepEqual(drive.state.folders, [["other"], ["media", "folder-other", "photo"]]);
   assert.match([...drive.state.files.values()][0].params.description, /区分: その他/);
 });
 

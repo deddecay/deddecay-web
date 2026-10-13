@@ -273,6 +273,11 @@ export class DriveClient {
     return this.ensureChildFolder(root, { role: "other" }, "その他");
   }
 
+  // 日付単位のフォルダ（LIVE フォルダ / その他）の下の photo / movie フォルダ
+  ensureMediaFolder(parentId: string, media: "photo" | "movie"): Promise<string> {
+    return this.ensureChildFolder(parentId, { role: "media", media }, media);
+  }
+
   async findByKey(ddKey: string): Promise<{ id: string; size: number; md5: string }[]> {
     const rows = await this.listAll(
       `trashed=false and appProperties has { key='ddKey' and value='${escapeQuery(ddKey)}' }`,
