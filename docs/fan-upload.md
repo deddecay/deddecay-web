@@ -99,7 +99,7 @@ LIVE の選択肢は microCMS の `entries`（type=live）が唯一の正本。
 | `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile のシークレット |
 | `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | Turnstile のサイトキー（公開値。**変更後は再デプロイが必要**） |
 | `RESEND_API_KEY` / `CONTACT_TO_EMAIL` / `CONTACT_FROM_EMAIL` | 通知メール（CONTACT と共通） |
-| `FAN_MOMENTS_FROM_EMAIL` | 任意。通知メールの送信元。例: `deddecay Fan moments <fanmoments@deddecay.tokyo>`（Resend で認証済みのドメインが必要）。未設定なら `CONTACT_FROM_EMAIL` を使う。CONTACT フォームの送信元は変わらない |
+| `FAN_MOMENTS_FROM_EMAIL` | 任意。通知メールの送信元。例: `deddecay Fan moments <fanmoments@deddecay.tokyo>`（Resend で認証済みのドメインが必要）。未設定なら `CONTACT_FROM_EMAIL` の**アドレス部分**を使い、表示名を `deddecay Fan moments` にする（例: `deddecay Fan moments <onboarding@resend.dev>`。Resend の追加設定は不要）。CONTACT フォームの送信元は変わらない |
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | 任意。rate limit をインスタンス間で共有する（未設定時はメモリ内のみ） |
 | `FAN_UPLOAD_MAX_FILES` / `_MAX_FILE_GB` / `_MAX_POST_GB` | 任意。既定 10 件 / 4GB / 8GB |
 | `FAN_UPLOAD_APP_CAP_GB` / `_DAILY_GB_PER_IP` | 任意。既定 50GB / 20GB。`APP_CAP` は R2 の保存量がこの値を超えたら新規投稿を断る安全弁（R2 自体に容量上限は無い）。自動削除はしない |

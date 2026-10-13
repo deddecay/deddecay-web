@@ -19,7 +19,7 @@ import { consume, _resetMemoryForTest } from "../src/lib/fan-upload/ratelimit.ts
 import { DriveClient } from "../src/lib/fan-upload/drive.ts";
 import { R2Client, R2Error, signV4 } from "../src/lib/fan-upload/r2.ts";
 import { handleInit, handleComplete, readAllowedOrigins } from "../src/lib/fan-upload/service.ts";
-import { sendNotification } from "../src/lib/mail.ts";
+import { sendNotification, fanMomentsFrom } from "../src/lib/mail.ts";
 import { uploadFile, UploadFatalError } from "../src/lib/fan-upload/client-upload.ts";
 import { fanMomentsEnabled, fanMomentsPublic } from "../src/lib/fan-upload/flags.ts";
 
@@ -843,7 +843,7 @@ test("complete: メール失敗時も保存は成功扱い。未通知のまま�
   assert.equal(state.completed.length, 2); // 結合は 1 回だけ
 });
 
-test("通知メールの送信元: FAN_MOMENTS_FROM_EMAIL があれば優先し、無ければ CONTACT_FROM_EMAIL（CONTACT は影響を受けない）", async () => {
+test("通知メールの送信元: FAN_MOMENTS_FROM_EMAIL があれば優先し、無ければ CONTACT のアドレス + 表示名「deddecay Fan moments」", async () => {
   const keys = ["RESEND_API_KEY", "CONTACT_TO_EMAIL", "CONTACT_FROM_EMAIL", "FAN_MOMENTS_FROM_EMAIL"];
   const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
   const realFetch = globalThis.fetch;
@@ -858,7 +858,16 @@ test("通知メールの送信元: FAN_MOMENTS_FROM_EMAIL があれば優先し�
     process.env.CONTACT_FROM_EMAIL = "onboarding@resend.dev";
     delete process.env.FAN_MOMENTS_FROM_EMAIL;
     assert.deepEqual(await sendNotification({ subject: "s", text: "t" }), { ok: true });
-    assert.equal(sent[0].from, "onboarding@resend.dev"); // 未設定なら従来どおり
+    // 未設定なら CONTACT のアドレスのまま、表示名だけ Fan moments 用にする（Resend のドメイン認証は不要）
+    assert.equal(sent[0].from, "deddecay Fan moments <onboarding@resend.dev>");
+
+    // CONTACT_FROM_EMAIL が「名前 <アドレス>」形式でも、名前だけが置き換わる
+    process.env.CONTACT_FROM_EMAIL = "DD UPLOAD <onboarding@resend.dev>";
+    assert.deepEqual(await sendNotification({ subject: "s", text: "t" }), { ok: true });
+    assert.equal(sent[1].from, "deddecay Fan moments <onboarding@resend.dev>");
+    assert.equal(fanMomentsFrom({ CONTACT_FROM_EMAIL: "DD UPLOAD <onboarding@resend.dev>" }), "deddecay Fan moments <onboarding@resend.dev>");
+    assert.equal(fanMomentsFrom({}), ""); // どちらも無ければ送信しない（既存の未設定扱い）
+    sent.pop();
 
     process.env.FAN_MOMENTS_FROM_EMAIL = "deddecay Fan moments <fanmoments@deddecay.tokyo>";
     assert.deepEqual(await sendNotification({ subject: "[Fan moments] LIVE / 2件", text: "t" }), { ok: true });
