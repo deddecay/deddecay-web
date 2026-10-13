@@ -1,4 +1,4 @@
-# DD UPLOAD
+# Fan moments（旧称 DD UPLOAD。内部識別子 `fan-upload` / `dd-upload-oauth.mjs` / `DD_UPLOAD_OAUTH_CLIENT_JSON` は変更していない）
 
 deddecay へ動画・写真・ファンアート等を送る公式アップロード窓口（URL: `/upload`）。
 保存先（原本の正本）は Cloudflare R2 の非公開バケット。Google Drive には保存しない（二重保存しない）。

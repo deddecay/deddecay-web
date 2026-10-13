@@ -727,6 +727,8 @@ test("complete: 全ファイル保存済みなら結合・検証し、1 投稿 =
     assert.ok(mail.text.includes(needle), needle);
   }
   assert.ok(!mail.text.includes("https://")); // ファイルへの URL は載せない（非公開のまま）
+  assert.ok(mail.text.startsWith("Fan moments に投稿が届きました。")); // 旧称 DD UPLOAD は表示に残さない
+  assert.ok(!mail.text.includes("DD UPLOAD"));
   const manifest = manifestOf(`fan-moments/live/live-1/${init.body.postId}`);
   assert.equal(manifest.status, "complete");
   assert.equal(manifest.notified, true);

@@ -316,7 +316,7 @@ const buildMail = (manifest: Manifest, accepted: ManifestFile[], rejected: numbe
   const place =
     target.kind === "live" ? `LIVE: ${target.liveDate} ${target.liveTitle} (${target.liveId})` : "その他";
   const lines = [
-    "DD UPLOAD に投稿が届きました。",
+    "Fan moments に投稿が届きました。",
     "",
     `投稿ID: ${manifest.uploadId}`,
     `区分: ${place}`,

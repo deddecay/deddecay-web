@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// DD UPLOAD: Google OAuth リフレッシュトークンの発行（ローカルで手動実行する運用ツール）。
+// Fan moments: Google OAuth リフレッシュトークンの発行（ローカルで手動実行する運用ツール）。
 //
 // 秘密の扱い:
 //   - OAuth クライアント JSON は repository の外に置く（既定: /Users/hayato/site/secrets/deddecay/dd-upload/google-oauth-client.json）。
