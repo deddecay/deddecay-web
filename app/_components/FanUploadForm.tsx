@@ -472,8 +472,8 @@ export default function FanUploadForm({ lives, initialLiveId, limits }: Props) {
       <div className="flex flex-col gap-3 border border-white/15 p-3">
         <span className={labelBase}>利用について</span>
         <ul className="list-disc pl-4 text-[10px] leading-relaxed text-white/55 flex flex-col gap-1">
-          <li>投稿できるのは、ご自身が撮影・制作した写真・動画に限ります。</li>
-          <li>アップロードいただいた写真・動画も、引き続きSNS等で自由にご利用ください。</li>
+          <li>投稿するのは、ご自身が撮影・制作したものに限ります。</li>
+          <li>アップロードいただいたデータも、引き続きSNS等でご利用ください。</li>
           <li>deddecay が公式サイト・SNS・告知等で、投稿内容を紹介・利用する場合があります（事前の個別連絡なし）。</li>
           <li>他の方が大きく写っているもの、会場の撮影禁止区域のものはご遠慮ください。</li>
           <li>削除のご希望は、サイトの CONTACT からご連絡ください。</li>
