@@ -885,6 +885,34 @@ test("通知メールの送信元: FAN_MOMENTS_FROM_EMAIL があれば優先し�
   }
 });
 
+test("完了画面の導線: 「TOPへ戻る」(主・枠付き, /) と「Fan momentsへ戻る」(副・テキスト, /upload)。左上の TOP リンクは完了画面で隠す", async () => {
+  const { readFileSync, existsSync } = await import("node:fs");
+  const form = readFileSync(new URL("../app/_components/FanUploadForm.tsx", import.meta.url), "utf8");
+  const screen = readFileSync(new URL("../app/_components/FanUploadScreen.tsx", import.meta.url), "utf8");
+  const page = readFileSync(new URL("../app/upload/page.tsx", import.meta.url), "utf8");
+  const done = form.slice(form.indexOf('if (phase === "done")'), form.indexOf("const uploaded = progress"));
+
+  // 遷移先は実在する route（トップ /・Fan moments の /upload）
+  assert.ok(existsSync(new URL("../app/page.tsx", import.meta.url)));
+  assert.ok(existsSync(new URL("../app/upload/page.tsx", import.meta.url)));
+  assert.match(done, /<Link href="\/" className=\{buttonBase\}>\s*TOPへ戻る\s*<\/Link>/); // 主導線（枠付きボタン）
+  assert.match(done, /href="\/upload"[\s\S]*?onClick=\{reset\}[\s\S]*?Fan momentsへ戻る/); // 副導線（枠なしのテキストリンク）
+  const sub = done.slice(done.indexOf('href="/upload"'), done.indexOf("Fan momentsへ戻る"));
+  assert.ok(!sub.includes("buttonBase") && !sub.includes("border")); // 副導線は枠付きにしない
+  assert.ok(done.indexOf("TOPへ戻る") < done.indexOf("Fan momentsへ戻る")); // TOP の下に副導線
+  assert.ok(!done.includes("続けて投稿する"));
+  // 既存の文言は維持
+  assert.ok(done.includes("ありがとうございます！"));
+  assert.ok(done.includes("アップロードいただいた動画も引き続き自由にお使いください！"));
+
+  // 左上の「← deddecay」は完了画面でだけ隠す。ページ側には残さない（二重表示を防ぐ）
+  assert.match(screen, /\{!done && \(\s*<Link\s+href="\/"/);
+  assert.ok(screen.includes("onDoneChange={setDone}"));
+  assert.ok(!page.includes("← deddecay"));
+  // 公開導線は追加していない（ナビ・LIVE 詳細へのリンクを足していない）
+  assert.ok(!readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8").includes("/upload"));
+});
+
 test("許可オリジン: 本番ドメインを含み、任意オリジンは含まない", () => {
   const origins = readAllowedOrigins({ NODE_ENV: "production" });
   assert.ok(origins.includes("https://deddecay.tokyo"));

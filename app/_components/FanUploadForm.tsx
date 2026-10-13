@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ACCEPT_ATTRIBUTE,
@@ -20,6 +21,8 @@ type Props = {
   initialLiveId?: string;
   // サーバーが実際に適用している上限（ページから渡す）
   limits: UploadLimits;
+  // 完了画面の表示／非表示が切り替わったときに呼ばれる（ページ上部の導線を完了画面でだけ隠すために使う）
+  onDoneChange?: (done: boolean) => void;
 };
 
 type Phase = "idle" | "uploading" | "completing" | "done";
@@ -67,7 +70,7 @@ const fileSignature = (files: File[]) => files.map((f) => `${f.name}:${f.size}:$
 // 同じファイルを重複して選ばないための識別子
 const fileKey = (f: File) => `${f.name}:${f.size}:${f.lastModified}`;
 
-export default function FanUploadForm({ lives, initialLiveId, limits }: Props) {
+export default function FanUploadForm({ lives, initialLiveId, limits, onDoneChange }: Props) {
   const [kind, setKind] = useState<"" | "live" | "other">(
     initialLiveId && lives.some((l) => l.id === initialLiveId) ? "live" : ""
   );
@@ -82,6 +85,10 @@ export default function FanUploadForm({ lives, initialLiveId, limits }: Props) {
   const [error, setError] = useState("");
   const [progress, setProgress] = useState<number[]>([]);
   const [mailNote, setMailNote] = useState(false);
+
+  useEffect(() => {
+    onDoneChange?.(phase === "done");
+  }, [phase, onDoneChange]);
   // 途中まで送信済みのセッションがあるか（表示用。実体は sessionRef）
   const [resumable, setResumable] = useState(false);
 
@@ -324,9 +331,17 @@ export default function FanUploadForm({ lives, initialLiveId, limits }: Props) {
         {mailNote && (
           <p className="text-[10px] text-white/40 leading-relaxed">※ 受付通知の送信に時間がかかっています。ファイルは保存済みです。</p>
         )}
-        <button onClick={reset} className={buttonBase}>
-          続けて投稿する
-        </button>
+        {/* 主導線: サイト TOP へ。副導線: Fan moments のメインページ（/upload）へ戻り、フォームを初期状態に戻す */}
+        <Link href="/" className={buttonBase}>
+          TOPへ戻る
+        </Link>
+        <Link
+          href="/upload"
+          onClick={reset}
+          className="text-[10px] tracking-widest text-white/45 hover:text-white/75 transition-colors duration-150 -mt-2"
+        >
+          Fan momentsへ戻る
+        </Link>
       </div>
     );
   }
