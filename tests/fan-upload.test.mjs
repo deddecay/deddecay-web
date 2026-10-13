@@ -908,6 +908,9 @@ test("完了画面の導線: 「TOPへ戻る」(主・枠付き, /) と「Fan mo
   // 左上の「← deddecay」は完了画面でだけ隠す。ページ側には残さない（二重表示を防ぐ）
   assert.match(screen, /\{!done && \(\s*<Link\s+href="\/"/);
   assert.ok(screen.includes("onDoneChange={setDone}"));
+  // 共通ヘッダー（見出し・説明）も完了画面では隠す。通常のフォーム画面では表示する（done が false の間）
+  assert.match(screen, /\{!done && \(\s*<header[\s\S]*?Fan moments[\s\S]*?SNS等での使用を目的としています。[\s\S]*?<\/header>\s*\)\}/);
+  assert.ok(screen.indexOf("<FanUploadForm") > screen.indexOf("</header>")); // フォームは常に表示
   assert.ok(!page.includes("← deddecay"));
   // 公開導線は追加していない（ナビ・LIVE 詳細へのリンクを足していない）
   assert.ok(!readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8").includes("/upload"));
