@@ -80,7 +80,7 @@ export const FIELD_LIMITS = {
 } as const;
 
 // 同意文の版。文面を変えたら更新する（投稿メタデータ manifest.json に記録される）
-export const CONSENT_VERSION = "2026-10-v1";
+export const CONSENT_VERSION = "2026-10-v2";
 
 export type DeclaredFile = { name: string; size: number; type: string };
 
@@ -162,17 +162,27 @@ export const sanitizeFileName = (fileName: string, maxLength = 100): string => {
 };
 
 // ── LIVE の投稿受付期間 ────────────────────────────────
-// LIVE への投稿は、開催日時から 30 日間（暦月ではなく 30 × 24 時間）だけ受け付ける。
-// 開催前・30 日を超えた LIVE は選択肢に出さず、サーバーでも拒否する。「その他」は対象外。
-export const LIVE_POST_WINDOW_DAYS = 30;
-const LIVE_POST_WINDOW_MS = LIVE_POST_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+// LIVE への投稿は、開催日時から 6 か月間（暦月。UTC 基準）だけ受け付ける。
+// 開催前・6 か月を過ぎた LIVE は選択肢に出さず、サーバーでも拒否する。「その他」は対象外。
+export const LIVE_POST_WINDOW_MONTHS = 6;
+
+// 開始の LIVE_POST_WINDOW_MONTHS か月後の同時刻（その月に同じ日が無ければ月末日）
+const windowEndMs = (startMs: number): number => {
+  const d = new Date(startMs);
+  const day = d.getUTCDate();
+  d.setUTCDate(1);
+  d.setUTCMonth(d.getUTCMonth() + LIVE_POST_WINDOW_MONTHS);
+  const lastDay = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+  d.setUTCDate(Math.min(day, lastDay));
+  return d.getTime();
+};
 
 // 開催日時（ISO 文字列）に対して今が受付期間内か。日時が不明・不正なら受け付けない
 export const isLivePostable = (eventAt: string | undefined, nowMs: number): boolean => {
   if (!eventAt) return false;
   const start = new Date(eventAt).getTime();
   if (Number.isNaN(start)) return false;
-  return nowMs >= start && nowMs < start + LIVE_POST_WINDOW_MS;
+  return nowMs >= start && nowMs < windowEndMs(start);
 };
 
 // LIVE の一覧から、今投稿できるものだけを残す。開催日時は表示と同じ eventDate（なければ publishedAt）

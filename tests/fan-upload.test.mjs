@@ -563,7 +563,7 @@ test("init: 同じ LIVE への別投稿は uploadId で分離され、ファイ�
   );
 });
 
-test("init: LIVE は開催後 30 日間だけ受け付ける（開催前・30 日超は拒否、「その他」は対象外）", async () => {
+test("init: LIVE は開催後 6 か月間だけ受け付ける（開催前・6 か月超は拒否、「その他」は対象外）", async () => {
   const NOW_MS = Date.parse("2026-10-10T06:00:00Z");
   const withEvent = (eventAt) =>
     makeDeps({ getLive: async (id) => ({ id, title: "t", dateLabel: "d", eventAt }) });
@@ -572,46 +572,53 @@ test("init: LIVE は開催後 30 日間だけ受け付ける（開催前・30 �
     const res = await handleInit(validBody(), ctx, deps);
     return { status: res.status, created: state.created.length, error: res.body.error };
   };
-  // 期間内: ちょうど開始 / 29 日前
+  // 期間内: ちょうど開始 / 30 日前（旧仕様では期間外）/ 6 か月弱前（2026-04-10T06:00:01Z）
   assert.equal((await status(new Date(NOW_MS).toISOString())).status, 200);
-  assert.equal((await status(new Date(NOW_MS - 29 * 86_400_000).toISOString())).status, 200);
-  // 期間外: 開催前（1 ミリ秒先）/ 30 日ちょうど / 31 日前 / 日時なし・不正
+  assert.equal((await status(new Date(NOW_MS - 30 * 86_400_000).toISOString())).status, 200);
+  assert.equal((await status("2026-04-10T06:00:01Z")).status, 200);
+  // 期間外: 開催前（1 ミリ秒先）/ ちょうど 6 か月前 / 7 か月前 / 日時なし・不正
   for (const eventAt of [
     new Date(NOW_MS + 1).toISOString(),
-    new Date(NOW_MS - 30 * 86_400_000).toISOString(),
-    new Date(NOW_MS - 31 * 86_400_000).toISOString(),
+    "2026-04-10T06:00:00Z",
+    "2026-03-10T06:00:00Z",
     undefined,
     "not-a-date",
   ]) {
     const r = await status(eventAt);
     assert.equal(r.status, 400, String(eventAt));
     assert.equal(r.created, 0, String(eventAt)); // R2 に何も作らない
-    assert.ok(r.error.includes("30日"));
+    assert.ok(r.error.includes("6か月"));
   }
   // 「その他」は LIVE の期間に関係なく常に受け付ける
   const other = makeDeps({ getLive: async () => null });
   assert.equal((await handleInit(validBody({ kind: "other", liveId: undefined }), ctx, other.deps)).status, 200);
 });
 
-test("LIVE の受付期間: 暦月ではなく開催日時からの 30 日で判定し、一覧は受付中のものだけ残す", () => {
-  const start = Date.parse("2026-01-31T10:00:00Z"); // 月末開催でも 30 日 = 3/2 10:00（暦月の 2 月末ではない）
+test("LIVE の受付期間: 開催日時からの 6 か月（暦月）で判定し、一覧は受付中のものだけ残す", () => {
+  const start = Date.parse("2026-01-31T10:00:00Z"); // 6 か月後の 7/31 に同じ日がある
   assert.equal(isLivePostable("2026-01-31T10:00:00Z", start - 1), false); // 開催前
   assert.equal(isLivePostable("2026-01-31T10:00:00Z", start), true);
-  assert.equal(isLivePostable("2026-01-31T10:00:00Z", Date.parse("2026-03-02T09:59:59Z")), true);
-  assert.equal(isLivePostable("2026-01-31T10:00:00Z", Date.parse("2026-03-02T10:00:00Z")), false);
+  assert.equal(isLivePostable("2026-01-31T10:00:00Z", Date.parse("2026-07-31T09:59:59Z")), true);
+  assert.equal(isLivePostable("2026-01-31T10:00:00Z", Date.parse("2026-07-31T10:00:00Z")), false);
+  // 月末開催: 6 か月後の月に同じ日が無ければ月末日（8/31 → 2/28、うるう年は 2/29）
+  assert.equal(isLivePostable("2026-08-31T10:00:00Z", Date.parse("2027-02-28T09:59:59Z")), true);
+  assert.equal(isLivePostable("2026-08-31T10:00:00Z", Date.parse("2027-02-28T10:00:00Z")), false);
+  assert.equal(isLivePostable("2027-08-31T10:00:00Z", Date.parse("2028-02-28T10:00:00Z")), true);
+  assert.equal(isLivePostable("2027-08-31T10:00:00Z", Date.parse("2028-02-29T10:00:00Z")), false);
   assert.equal(isLivePostable(undefined, start), false);
 
   const now = Date.parse("2026-10-10T06:00:00Z");
   const entries = [
     { id: "future", eventDate: "2026-10-20T10:00:00Z" },
     { id: "recent", eventDate: "2026-10-01T10:00:00Z" },
-    { id: "expired", eventDate: "2026-09-01T10:00:00Z" },
+    { id: "three-months", eventDate: "2026-07-10T10:00:00Z" },
+    { id: "expired", eventDate: "2026-03-01T10:00:00Z" },
     { id: "no-event-date", publishedAt: "2026-10-05T00:00:00Z" }, // eventDate が無ければ表示と同じく publishedAt
     { id: "nothing" },
   ];
-  assert.deepEqual(postableLives(entries, now).map((e) => e.id), ["recent", "no-event-date"]);
+  assert.deepEqual(postableLives(entries, now).map((e) => e.id), ["recent", "three-months", "no-event-date"]);
   assert.deepEqual(postableLives(entries, now), postableLives(entries, now)); // 副作用なし
-  assert.equal(entries.length, 5);
+  assert.equal(entries.length, 6);
 });
 
 test("init: その他投稿は other/{uploadId}/ に保存（LIVE とは別の枝）", async () => {

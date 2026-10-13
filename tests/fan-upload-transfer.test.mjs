@@ -112,7 +112,7 @@ const manifestOf = (over = {}, files) => ({
   target: { kind: "live", liveId: "L1", liveTitle: "Spotify O-Crest『CASCADE』", liveDate: "2026.09.20" },
   createdAt: "2026-10-12T06:24:05.000Z",
   completedAt: "2026-10-12T06:24:30.000Z",
-  consent: "2026-10-v1",
+  consent: "2026-10-v2",
   message: "応援してます！",
   notified: true,
   files: files ?? [

@@ -26,7 +26,7 @@ import type { NotifyMail } from "../mail";
 // liveId は microCMS の entry.id（表示名や日付には依存しない）、uploadId は投稿ごとの ID。
 // manifest.json に投稿の情報（対象 LIVE・投稿日時・ファイル名/サイズ/種別・同一投稿のファイル群）を残す。
 
-// eventAt: 開催日時（ISO 文字列）。投稿受付期間（開催後 30 日間）の判定に使う
+// eventAt: 開催日時（ISO 文字列）。投稿受付期間（開催後 6 か月間）の判定に使う
 export type LiveRef = { id: string; title: string; dateLabel: string; eventAt?: string };
 
 export type Deps = {
@@ -200,7 +200,7 @@ export const handleInit = async (rawBody: unknown, ctx: InitContext, deps: Deps)
     live = await deps.getLive(body.liveId as string);
     if (!live || !SAFE_ID.test(live.id)) return fail(400, "選択した公演が見つかりません");
     if (!isLivePostable(live.eventAt, deps.now())) {
-      return fail(400, "この公演は現在、アップロードを受け付けていません（ライブ開催後30日間のみ受付）");
+      return fail(400, "この公演は現在、アップロードを受け付けていません（ライブ開催後6か月間のみ受付）");
     }
   }
 

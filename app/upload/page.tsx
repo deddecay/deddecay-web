@@ -23,7 +23,7 @@ export default async function FanUploadPage({ searchParams }: Props) {
   // 公開前は 404（FAN_MOMENTS_ENABLED=1 の環境でだけ表示する）
   if (!fanMomentsEnabled()) notFound();
   const { live } = await searchParams;
-  // 一覧に出すのは、いま投稿を受け付けている LIVE（開催後 30 日間）だけ。取得処理は従来のまま
+  // 一覧に出すのは、いま投稿を受け付けている LIVE（開催後 6 か月間）だけ。取得処理は従来のまま
   const entries = postableLivesNow(await getAllLives());
   const lives = entries.map((entry) => ({
     id: entry.id,
