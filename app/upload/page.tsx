@@ -12,6 +12,20 @@ export const metadata: Metadata = {
   title: "Fan moments | deddecay",
   description: "deddecayのライブで撮影した写真や動画をアップロードしてください！",
   robots: { index: false, follow: false },
+  openGraph: {
+    title: "Fan moments | deddecay",
+    description: "deddecayのライブで撮影した写真や動画をアップロードしてください！",
+    url: "/upload",
+    siteName: "deddecay",
+    type: "website",
+    images: [{ url: "/og/og-fan-moments.png", width: 1200, height: 630 }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Fan moments | deddecay",
+    description: "deddecayのライブで撮影した写真や動画をアップロードしてください！",
+    images: ["/og/og-fan-moments.png"],
+  },
 };
 
 type Props = {
