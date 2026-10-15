@@ -319,17 +319,19 @@ export default function NavMenu({ newsItems, liveItems, biography, discographyIt
         {renderExpandable("live")}
         {renderExpandable("biography")}
         {renderExpandable("discography")}
-        {renderExpandable("contact")}
 
-        {/* Fan moments — ライブで撮影した写真・動画のアップロード窓口（公開前は非表示） */}
+        {/* Fan moments — DISCOGRAPHY の直下。メインページ /fan-moments への導線（公開前は非表示。/upload へは直接遷移しない）。
+            文字は切れかけの電球のように、不規則に短くちらつく（prefers-reduced-motion では静止） */}
         {showFanMoments && (
           <li className="flex flex-col items-center">
-            <Link href="/upload" className={labelStyle}>
-              Fan moments
+            <Link href="/fan-moments" className={`${labelStyle} fan-moments-flicker`}>
+              <span className="fan-moments-flicker-b">Fan moments</span>
             </Link>
             <div className="h-px w-6 bg-white/20 mt-2" />
           </li>
         )}
+
+        {renderExpandable("contact")}
 
         {/* STORE — 外部リンクのみ残す */}
         <li className="flex flex-col items-center">

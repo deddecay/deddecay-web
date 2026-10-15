@@ -916,6 +916,34 @@ test("完了画面の導線: 「TOPへ戻る」(主・枠付き, /) と「Fan mo
   assert.ok(!readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8").includes("/upload"));
 });
 
+test("TOP 導線: DISCOGRAPHY の直下から /fan-moments へ。/upload へは直接つながない。点滅は reduced-motion で止まる", async () => {
+  const { readFileSync, existsSync } = await import("node:fs");
+  const read = (p) => readFileSync(new URL(p, import.meta.url), "utf8");
+  const nav = read("../app/_components/NavMenu.tsx");
+  const main = read("../app/fan-moments/page.tsx");
+  const css = read("../app/globals.css");
+
+  assert.ok(existsSync(new URL("../app/fan-moments/page.tsx", import.meta.url)));
+  assert.ok(existsSync(new URL("../app/upload/page.tsx", import.meta.url)));
+  // TOP のリンクは /fan-moments。/upload は TOP（page.tsx / NavMenu）に直接出さない。表示は公開フラグ次第
+  assert.match(nav, /href="\/fan-moments"/);
+  assert.ok(!nav.includes('"/upload"') && !read("../app/page.tsx").includes("/upload"));
+  assert.match(nav, /showFanMoments && \(/);
+  // 位置: DISCOGRAPHY の直下（CONTACT より前）
+  assert.ok(nav.indexOf('renderExpandable("discography")') < nav.indexOf("showFanMoments && ("));
+  assert.ok(nav.indexOf("showFanMoments && (") < nav.indexOf('renderExpandable("contact")'));
+  // メインページ: 公開前は 404、投稿は既存 /upload へ
+  assert.match(main, /if \(!fanMomentsEnabled\(\)\) notFound\(\)/);
+  assert.match(main, /href="\/upload"[\s\S]*?投稿する/);
+  // 点滅は prefers-reduced-motion: no-preference のときだけ。opacity のみ、最低 0.5 以上
+  const motion = css.slice(css.indexOf("@media (prefers-reduced-motion: no-preference) {", css.indexOf("fan-moments-flicker-a")));
+  assert.ok(motion.includes(".fan-moments-flicker") && motion.includes(".fan-moments-flicker-b"));
+  const keyframes = css.slice(css.indexOf("@keyframes fan-moments-flicker-a"), css.indexOf("@media", css.indexOf("@keyframes fan-moments-flicker-b")));
+  const values = [...keyframes.matchAll(/opacity:\s*([0-9.]+)/g)].map((m) => Number(m[1]));
+  assert.ok(values.length > 0 && Math.min(...values) >= 0.5 && Math.max(...values) <= 1);
+  assert.ok(!/(blur|transform|translate)/.test(keyframes));
+});
+
 test("許可オリジン: 本番ドメインを含み、任意オリジンは含まない", () => {
   const origins = readAllowedOrigins({ NODE_ENV: "production" });
   assert.ok(origins.includes("https://deddecay.tokyo"));

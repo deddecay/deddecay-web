@@ -73,7 +73,7 @@ docs/
 - テキスト：白（opacity で濃淡調整）
 - 基調：ミニマル・静的・無機質
 - フォント：Geist Sans（英字）、システムフォント（日本語）
-- アニメーション：transition のみ（scale / opacity / max-height）＋TOPロゴ初回表示のみ CSS animation（後述）
+- アニメーション：transition のみ（scale / opacity / max-height）＋CSS animation は次の 2 つだけ（後述）：TOPロゴ初回表示（1 回）／TOP の「Fan moments」文字の不規則なちらつき（永続）
 - hover：少し白くなる程度（`text-white`）
 - ボタン：`rounded-sm`、細い border、glow・shadow なし
 - モバイルファースト：`sm:` ブレイクポイントで PC 向けに微調整
@@ -93,6 +93,8 @@ docs/
 | `/entries?type=news` | NEWS 過去ログ（ページネーション付き） |
 | `/entries?type=live` | LIVE 過去ログ（ページネーション付き） |
 | `/api/contact` | CONTACTフォーム送信エンドポイント（POST） |
+| `/fan-moments` | Fan moments のメインページ（説明＋「投稿する」で `/upload` へ）。`FAN_MOMENTS_ENABLED=1` でのみ表示、未設定は 404。noindex |
+| `/upload` | Fan moments の投稿フォーム（既存。TOP からは直接リンクしない） |
 
 ---
 
@@ -208,6 +210,18 @@ Copyright
 - NEWS / LIVE / BIOGRAPHY / DISCOGRAPHY / CONTACT の 5 セクション
 - 常に 1 セクションのみ展開（別セクション選択時は閉じてから開く、220ms 後）
 - STORE は展開なしの外部リンク（https://deddecay.base.shop/）
+- **Fan moments**：DISCOGRAPHY の直下（CONTACT の前）に置く展開なしのリンク（STORE と同じ短い下線）。リンク先は `/fan-moments`（`/upload` へは直接つながない）。`FAN_MOMENTS_PUBLIC=1`（`FAN_MOMENTS_ENABLED=1` も必要）のときだけ表示する
+
+#### Fan moments 文字のちらつき（永続・例外）
+
+| 項目 | 内容 |
+|---|---|
+| 対象 | TOP の「Fan moments」リンク文字のみ |
+| className | `fan-moments-flicker`（リンク・周期 13s）／`fan-moments-flicker-b`（内側の span・周期 19s） |
+| 実装場所 | `app/globals.css` |
+| 演出 | opacity のみ・`steps(1, end)`。通常は opacity 1（読める状態）で、短いちらつきが不規則に入る。2 つの周期を重ねて規則的に見えないようにする |
+| 可読性の上限 | 最低 opacity 0.5／1 回のちらつきは 0.5 秒未満／1 秒間の明滅は 3 回未満 |
+| 非対応環境 | `prefers-reduced-motion: reduce` では静止表示（アニメーションは `no-preference` のときだけ指定） |
 
 ---
 

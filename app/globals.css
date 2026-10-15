@@ -39,3 +39,40 @@ body {
     animation: logo-signal 380ms steps(1, end) both;
   }
 }
+
+/* ── Fan moments: failing-bulb flicker (infinite) ─────────────
+   通常は読める状態（opacity 1）を基本に、短いちらつきが不規則に入る。
+   ロゴ演出と同じ opacity のみ・steps(1, end)。最低 opacity は 0.5、
+   1 回のちらつきは 0.5 秒未満、1 秒間の明滅は 3 回未満に抑える。
+   周期の異なる 2 つのアニメーション（外側 13s / 内側 19s）を重ねて、規則的に見えないようにする。 */
+
+@keyframes fan-moments-flicker-a {
+  0%   { opacity: 1;   }
+  31%  { opacity: 0.5; }
+  31.8% { opacity: 1;  }
+  33%  { opacity: 0.7; }
+  34%  { opacity: 1;   }
+  72%  { opacity: 0.55; }
+  73.5% { opacity: 1;  }
+  100% { opacity: 1;   }
+}
+
+@keyframes fan-moments-flicker-b {
+  0%   { opacity: 1;   }
+  12%  { opacity: 0.6; }
+  12.8% { opacity: 1;  }
+  58%  { opacity: 0.5; }
+  58.6% { opacity: 0.85; }
+  59.4% { opacity: 1;  }
+  100% { opacity: 1;   }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .fan-moments-flicker {
+    animation: fan-moments-flicker-a 13s steps(1, end) infinite;
+  }
+  .fan-moments-flicker-b {
+    display: inline-block;
+    animation: fan-moments-flicker-b 19s steps(1, end) infinite;
+  }
+}
