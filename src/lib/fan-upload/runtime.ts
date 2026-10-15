@@ -46,7 +46,7 @@ export const buildDeps = (): Deps | null => {
         id: entry.id,
         title: entry.title,
         dateLabel: formatLiveDate(entry),
-        eventAt: entry.eventDate ?? entry.publishedAt,
+        eventAt: entry.eventDate, // web画面表示日時が正本（publishedAt 等へはフォールバックしない）
       };
     },
     sendMail: sendNotification,

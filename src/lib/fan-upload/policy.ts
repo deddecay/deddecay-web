@@ -162,19 +162,23 @@ export const sanitizeFileName = (fileName: string, maxLength = 100): string => {
 };
 
 // ── LIVE の投稿受付期間 ────────────────────────────────
-// LIVE への投稿は、開催日時から 6 か月間（暦月。UTC 基準）だけ受け付ける。
-// 開催前・6 か月を過ぎた LIVE は選択肢に出さず、サーバーでも拒否する。「その他」は対象外。
+// LIVE への投稿は、開催日時（microCMS の eventDate = web画面表示日時）の実際の日時を迎えた時点から、
+// 6 か月間（日本時間の暦月）だけ受け付ける。開催前・6 か月を過ぎた LIVE は選択肢に出さず、サーバーでも拒否する。
+// 「その他」は対象外。投稿日時・publishedAt 等の CMS 側の時刻は判定に使わない。
 export const LIVE_POST_WINDOW_MONTHS = 6;
 
-// 開始の LIVE_POST_WINDOW_MONTHS か月後の同時刻（その月に同じ日が無ければ月末日）
+// 日本は夏時間が無く、UTC+9 で固定。暦月の計算だけを日本時間の壁時計で行うために使う（表示や判定の補正ではない）
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+// 開始の LIVE_POST_WINDOW_MONTHS か月後の同時刻（日本時間）。その月に同じ日が無ければ月末日
 const windowEndMs = (startMs: number): number => {
-  const d = new Date(startMs);
+  const d = new Date(startMs + JST_OFFSET_MS); // getUTC* が日本時間の壁時計になる
   const day = d.getUTCDate();
   d.setUTCDate(1);
   d.setUTCMonth(d.getUTCMonth() + LIVE_POST_WINDOW_MONTHS);
   const lastDay = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
   d.setUTCDate(Math.min(day, lastDay));
-  return d.getTime();
+  return d.getTime() - JST_OFFSET_MS;
 };
 
 // 開催日時（ISO 文字列）に対して今が受付期間内か。日時が不明・不正なら受け付けない
@@ -185,14 +189,13 @@ export const isLivePostable = (eventAt: string | undefined, nowMs: number): bool
   return nowMs >= start && nowMs < windowEndMs(start);
 };
 
-// LIVE の一覧から、今投稿できるものだけを残す。開催日時は表示と同じ eventDate（なければ publishedAt）
-export const postableLives = <T extends { eventDate?: string; publishedAt?: string }>(
-  entries: readonly T[],
-  nowMs: number
-): T[] => entries.filter((entry) => isLivePostable(entry.eventDate ?? entry.publishedAt, nowMs));
+// LIVE の一覧から、今投稿できるものだけを残す。開催日時は eventDate（web画面表示日時）だけを使う
+// （LIVE では入力必須。無いものは受け付けない。publishedAt 等へはフォールバックしない）
+export const postableLives = <T extends { eventDate?: string }>(entries: readonly T[], nowMs: number): T[] =>
+  entries.filter((entry) => isLivePostable(entry.eventDate, nowMs));
 
 // ページ描画用: 現在時刻での postableLives（コンポーネント内で Date.now を呼ばないための薄いラッパー）
-export const postableLivesNow = <T extends { eventDate?: string; publishedAt?: string }>(entries: readonly T[]): T[] =>
+export const postableLivesNow = <T extends { eventDate?: string }>(entries: readonly T[]): T[] =>
   postableLives(entries, Date.now());
 
 export type FormTarget =

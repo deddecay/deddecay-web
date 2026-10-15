@@ -613,10 +613,10 @@ test("LIVE の受付期間: 開催日時からの 6 か月（暦月）で判定�
     { id: "recent", eventDate: "2026-10-01T10:00:00Z" },
     { id: "three-months", eventDate: "2026-07-10T10:00:00Z" },
     { id: "expired", eventDate: "2026-03-01T10:00:00Z" },
-    { id: "no-event-date", publishedAt: "2026-10-05T00:00:00Z" }, // eventDate が無ければ表示と同じく publishedAt
+    { id: "no-event-date", publishedAt: "2026-10-05T00:00:00Z" }, // eventDate が無ければ受け付けない（publishedAt へはフォールバックしない）
     { id: "nothing" },
   ];
-  assert.deepEqual(postableLives(entries, now).map((e) => e.id), ["recent", "three-months", "no-event-date"]);
+  assert.deepEqual(postableLives(entries, now).map((e) => e.id), ["recent", "three-months"]);
   assert.deepEqual(postableLives(entries, now), postableLives(entries, now)); // 副作用なし
   assert.equal(entries.length, 6);
 });
@@ -914,6 +914,41 @@ test("完了画面の導線: 「TOPへ戻る」(主・枠付き, /) と「Fan mo
   assert.ok(!page.includes("← deddecay"));
   // 公開導線は追加していない（ナビ・LIVE 詳細へのリンクを足していない）
   assert.ok(!readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8").includes("/upload"));
+});
+
+test("LIVE の解禁: web画面表示日時（eventDate）の日時を迎えた時点。時刻まで反映し、日本時間で判定する", async () => {
+  const { readFileSync } = await import("node:fs");
+  // 2026/10/16 18:00 JST = 2026-10-16T09:00:00Z
+  const live = { id: "today-18", eventDate: "2026-10-16T09:00:00.000Z" };
+  const at = (iso) => postableLives([live], Date.parse(iso)).length === 1;
+  assert.equal(at("2026-10-16T08:59:59.999Z"), false); // 17:59:59.999 JST はまだ不可
+  assert.equal(at("2026-10-16T09:00:00.000Z"), true); // 18:00 JST から可
+  assert.equal(at("2026-10-15T15:00:00.000Z"), false); // 当日 0:00 JST でも、18:00 までは不可（0:00 解禁ではない）
+  // 未来のLIVE・過去（6か月以内）のLIVE
+  assert.equal(postableLives([{ eventDate: "2026-10-17T09:00:00Z" }], Date.parse("2026-10-16T09:00:00Z")).length, 0);
+  assert.equal(postableLives([{ eventDate: "2026-07-19T09:00:00Z" }], Date.parse("2026-10-16T09:00:00Z")).length, 1);
+  // 日付境界: JST 0:00 開催（= 前日 15:00Z）は、JST 0:00 ちょうどに解禁される
+  const midnight = { eventDate: "2026-10-15T15:00:00.000Z" }; // 2026/10/16 00:00 JST
+  assert.equal(postableLives([midnight], Date.parse("2026-10-15T14:59:59.999Z")).length, 0);
+  assert.equal(postableLives([midnight], Date.parse("2026-10-15T15:00:00.000Z")).length, 1);
+  // CMS 側の時刻（publishedAt 等）は判定に使わない
+  assert.equal(postableLives([{ publishedAt: "2026-01-01T00:00:00Z" }], Date.parse("2026-10-16T09:00:00Z")).length, 0);
+  assert.equal(postableLives([{ eventDate: "2026-10-17T09:00:00Z", publishedAt: "2026-01-01T00:00:00Z" }], Date.parse("2026-10-16T09:00:00Z")).length, 0);
+
+  // 6か月の終了も日本時間の暦月。2026/08/31 00:00 JST 開催 → 2027/02/28 00:00 JST（= 2027-02-27T15:00:00Z）に終了
+  const aug = "2026-08-30T15:00:00.000Z"; // 2026/08/31 00:00 JST
+  assert.equal(isLivePostable(aug, Date.parse("2027-02-27T14:59:59.999Z")), true);
+  assert.equal(isLivePostable(aug, Date.parse("2027-02-27T15:00:00.000Z")), false);
+  // 2026/04/16 18:00 JST 開催 → 2026/10/16 18:00 JST（= 09:00Z）ちょうどに終了
+  const apr = "2026-04-16T09:00:00.000Z";
+  assert.equal(isLivePostable(apr, Date.parse("2026-10-16T08:59:59.999Z")), true);
+  assert.equal(isLivePostable(apr, Date.parse("2026-10-16T09:00:00.000Z")), false);
+
+  // サーバー側の受付判定（LiveRef.eventAt）も eventDate だけを渡す。/upload の一覧は毎回描画（ISR で古い一覧を返さない）
+  assert.ok(!readFileSync(new URL("../src/lib/fan-upload/runtime.ts", import.meta.url), "utf8").includes("eventDate ?? entry.publishedAt"));
+  const page = readFileSync(new URL("../app/upload/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /await connection\(\)/);
+  assert.ok(!/export const revalidate/.test(page));
 });
 
 test("TOP 導線: DISCOGRAPHY の直下から /fan-moments へ。/upload へは直接つながない。点滅は reduced-motion で止まる", async () => {

@@ -1,7 +1,6 @@
-export const revalidate = 60;
-
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { connection } from "next/server";
 import FanUploadScreen from "../_components/FanUploadScreen";
 import { fanMomentsEnabled } from "@/src/lib/fan-upload/flags";
 import { getAllLives, formatLiveDate } from "@/src/lib/microcms";
@@ -33,6 +32,9 @@ type Props = {
 };
 
 export default async function FanUploadPage({ searchParams }: Props) {
+  // LIVE 選択肢は「現在時刻」で決まる（開催日時を迎えた時点で解禁）ため、キャッシュ（ISR）せず毎回描画する。
+  // 以前の revalidate = 60 では、解禁の瞬間から最大で再生成までの間、古い一覧が返っていた
+  await connection();
   // 公開前は 404（FAN_MOMENTS_ENABLED=1 の環境でだけ表示する）
   if (!fanMomentsEnabled()) notFound();
   const { live } = await searchParams;
