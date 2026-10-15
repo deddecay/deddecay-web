@@ -217,7 +217,7 @@ Copyright
 | 項目 | 内容 |
 |---|---|
 | 対象 | TOP の「Fan moments」リンク文字のみ |
-| className | `fan-moments-flicker`（リンク・周期 13s）／`fan-moments-flicker-b`（内側の span・周期 19s） |
+| className | `fan-moments-flicker`（リンク・周期 8s）／`fan-moments-flicker-b`（内側の span・周期 11s） |
 | 実装場所 | `app/globals.css` |
 | 演出 | opacity のみ・`steps(1, end)`。通常は opacity 1（読める状態）で、短いちらつきが不規則に入る。2 つの周期を重ねて規則的に見えないようにする |
 | 可読性の上限 | 最低 opacity 0.5／1 回のちらつきは 0.5 秒未満／1 秒間の明滅は 3 回未満 |
