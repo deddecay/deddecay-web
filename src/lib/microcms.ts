@@ -61,12 +61,23 @@ const getClient = () => {
   return createClient({ serviceDomain, apiKey });
 };
 
-export const formatEntryDate = (publishedAt: string | undefined): string =>
-  publishedAt
-    ? new Date(publishedAt)
-        .toLocaleDateString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit" })
-        .replace(/\//g, ".")
-    : "";
+// 日付は常に日本時間（Asia/Tokyo）の暦日で表示する。timeZone を指定しないと実行環境のタイムゾーン
+// （Vercel のサーバーは UTC）で解釈され、JST 0:00〜8:59 の値が前日として表示される。
+// microCMS の日時（eventDate / publishedAt）は ISO 8601（UTC）で返る。
+const ENTRY_DATE_FORMAT = new Intl.DateTimeFormat("ja-JP", {
+  timeZone: "Asia/Tokyo",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+export const formatEntryDate = (publishedAt: string | undefined): string => {
+  if (!publishedAt) return "";
+  const date = new Date(publishedAt);
+  if (Number.isNaN(date.getTime())) return "";
+  const part = (type: string) => ENTRY_DATE_FORMAT.formatToParts(date).find((p) => p.type === type)?.value ?? "";
+  return `${part("year")}.${part("month")}.${part("day")}`;
+};
 
 const NEW_ENTRY_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
 

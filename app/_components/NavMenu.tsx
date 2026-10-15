@@ -5,7 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import ContactForm from "./ContactForm";
-import { isNewEntry, resolveReleaseType, type Entry, type Biography, type DiscographyRelease } from "@/src/lib/microcms";
+import { formatEntryDate, isNewEntry, resolveReleaseType, type Entry, type Biography, type DiscographyRelease } from "@/src/lib/microcms";
 import { BIOGRAPHY } from "@/src/data/biography";
 
 // ── Types ────────────────────────────────────────────
@@ -45,12 +45,8 @@ type Props = {
 
 // ── Helpers ───────────────────────────────────────────
 
-const formatDate = (publishedAt: string | undefined) =>
-  publishedAt
-    ? new Date(publishedAt)
-        .toLocaleDateString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit" })
-        .replace(/\//g, ".")
-    : "";
+// 日付表示は他ページと共通の formatEntryDate（常に日本時間の暦日）を使う
+const formatDate = formatEntryDate;
 
 const matchesDiscoTab = (item: DiscographyRelease, tab: DiscoTab) => {
   const releaseType = resolveReleaseType(item);

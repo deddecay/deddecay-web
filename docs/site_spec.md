@@ -272,6 +272,7 @@ Copyright
 | 実装 | `isNewEntry()` in `src/lib/microcms.ts` |
 
 - LIVE の表示日時は `eventDate` だが、new 判定は `publishedAt` を使う
+- 日付表示は共通の `formatEntryDate`（`src/lib/microcms.ts`）で、**常に日本時間（Asia/Tokyo）の暦日**に変換する（タイムゾーン未指定だと Vercel のサーバー=UTC の暦日になり、JST 0:00〜8:59 の日時が前日表示になる）
 - 予約投稿・即時公開問わず、**公開された日時を起点に7日後に自動消滅**
 - 公開前（未来の `publishedAt`）では表示されない
 
