@@ -210,7 +210,7 @@ Copyright
 - NEWS / LIVE / BIOGRAPHY / DISCOGRAPHY / CONTACT の 5 セクション
 - 常に 1 セクションのみ展開（別セクション選択時は閉じてから開く、220ms 後）
 - STORE は展開なしの外部リンク（https://deddecay.base.shop/）
-- **Fan moments**：DISCOGRAPHY の直下（CONTACT の前）に置く展開なしのリンク（STORE と同じ短い下線）。リンク先は `/fan-moments`（`/upload` へは直接つながない）。`FAN_MOMENTS_PUBLIC=1`（`FAN_MOMENTS_ENABLED=1` も必要）のときだけ表示する
+- **Fan moments**：DISCOGRAPHY の直下（CONTACT の前）に置く展開なしのリンク（STORE と同じ短い下線）。リンク先は `/fan-moments`（`/upload` へは直接つながない）。`FAN_MOMENTS_ENABLED=1` のときだけ表示する（リンク先 `/fan-moments` が有効な環境でだけ出す。`FAN_MOMENTS_PUBLIC` は LIVE 詳細のリンク用）
 
 #### Fan moments 文字のちらつき（永続・例外）
 

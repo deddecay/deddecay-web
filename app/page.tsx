@@ -3,7 +3,7 @@ export const revalidate = 60;
 import Image from "next/image";
 import NavMenu from "./_components/NavMenu";
 import { getTopNews, getTopLives, getBiography, getDiscography } from "@/src/lib/microcms";
-import { fanMomentsPublic } from "@/src/lib/fan-upload/flags";
+import { fanMomentsEnabled } from "@/src/lib/fan-upload/flags";
 import {
   siApplemusic,
   siSpotify,
@@ -71,7 +71,7 @@ export default async function Home() {
           liveItems={liveItems}
           biography={biography}
           discographyItems={discographyItems}
-          showFanMoments={fanMomentsPublic()}
+          showFanMoments={fanMomentsEnabled()}
         />
 
       </div>

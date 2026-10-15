@@ -14,8 +14,8 @@ deddecay へ動画・写真・ファンアート等を送る公式アップロ�
 
 | 環境変数 | 効果 | 本番の現状 |
 |---|---|---|
-| `FAN_MOMENTS_ENABLED=1` | `/upload` とその API を有効にする。未設定なら `404`（URL を知っていても使えない） | **未設定**（無効） |
-| `FAN_MOMENTS_PUBLIC=1` | トップのナビと LIVE 詳細のリンクを表示する（`ENABLED` も必要） | **未設定**（非表示） |
+| `FAN_MOMENTS_ENABLED=1` | `/fan-moments`・`/upload` とその API を有効にする。**トップのナビの「Fan moments」もこれで表示する**。未設定なら `404` でナビにも出ない | **設定済み**（有効） |
+| `FAN_MOMENTS_PUBLIC=1` | LIVE 詳細ページの投稿リンクを表示する（`ENABLED` も必要） | **未設定**（非表示） |
 
 - Preview で検証するときは、Preview 環境にだけ `FAN_MOMENTS_ENABLED=1` を設定する（リンクは出さない）
 - どちらも `1` 以外（`true` など）は無効として扱う

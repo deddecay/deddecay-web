@@ -929,6 +929,10 @@ test("TOP 導線: DISCOGRAPHY の直下から /fan-moments へ。/upload へは�
   assert.match(nav, /href="\/fan-moments"/);
   assert.ok(!nav.includes('"/upload"') && !read("../app/page.tsx").includes("/upload"));
   assert.match(nav, /showFanMoments && \(/);
+  // TOP の表示条件は ENABLED（リンク先 /fan-moments が有効なときだけ出す）。PUBLIC の有無には依存しない
+  const top = read("../app/page.tsx");
+  assert.match(top, /showFanMoments=\{fanMomentsEnabled\(\)\}/);
+  assert.ok(!top.includes("fanMomentsPublic"));
   // 位置: DISCOGRAPHY の直下（CONTACT より前）
   assert.ok(nav.indexOf('renderExpandable("discography")') < nav.indexOf("showFanMoments && ("));
   assert.ok(nav.indexOf("showFanMoments && (") < nav.indexOf('renderExpandable("contact")'));
