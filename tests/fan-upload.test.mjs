@@ -518,7 +518,7 @@ test("init: LIVE 投稿は live/{liveId}/{uploadId}/ に分離され、manifest 
   const manifest = manifestOf(prefix);
   assert.equal(manifest.uploadId, res.body.postId);
   assert.equal(manifest.status, "pending");
-  assert.deepEqual(manifest.target, { kind: "live", liveId: "live-1", liveTitle: "渋谷 WWW X", liveDate: "2025.04.12" });
+  assert.deepEqual(manifest.target, { kind: "live", liveId: "live-1", liveTitle: "渋谷 WWW X", liveDate: "2025.04.12", eventAt: "2026-09-20T10:00:00.000Z" });
   assert.equal(manifest.createdAt, "2026-10-10T06:00:00.000Z");
   assert.equal(manifest.message, "最高でした");
   assert.deepEqual(
@@ -715,7 +715,7 @@ test("complete: 全ファイル保存済みなら結合・検証し、1 投稿 =
   assert.ok(!("attachments" in mail)); // ファイル自体は添付しない
   for (const needle of [
     init.body.postId,
-    "LIVE: 2025.04.12 渋谷 WWW X (live-1)", // どの LIVE への投稿か分かる
+    "LIVE: 2026.09.20 渋谷 WWW X (live-1)", // どの LIVE への投稿か分かる（日付は eventAt を日本時間で読んだもの）
     "投稿日時(JST): 2026-10-10 15:00:00",
     "movie.mov",
     "photo.heic",

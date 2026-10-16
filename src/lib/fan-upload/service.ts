@@ -71,7 +71,7 @@ const PART_URL_TTL_SEC = 24 * 60 * 60;
 const MANIFEST_NAME = "manifest.json";
 
 export type ManifestTarget =
-  | { kind: "live"; liveId: string; liveTitle: string; liveDate: string }
+  | { kind: "live"; liveId: string; liveTitle: string; liveDate: string; eventAt?: string }
   | { kind: "other" };
 
 export type ManifestFile = {
@@ -123,6 +123,16 @@ export const jstParts = (ms: number) => {
     mi: get("minute"),
     s: get("second"),
   };
+};
+
+// LIVE の日付表示（YYYY.MM.DD）。正本は開催日時 eventAt（web画面表示日時）を日本時間で読んだ日付。
+// 保存済みの liveDate 文字列は、日本時間で整形する前の版が作った誤った日付を含み得るため、eventAt があればそちらを優先する
+// （eventAt の無い古い manifest だけ liveDate にフォールバック）
+export const liveDateLabel = (target: Extract<ManifestTarget, { kind: "live" }>): string => {
+  const ms = target.eventAt ? Date.parse(target.eventAt) : NaN;
+  if (Number.isNaN(ms)) return target.liveDate;
+  const t = jstParts(ms);
+  return `${t.y}.${t.mo}.${t.d}`;
 };
 
 export const readLimits = (env: NodeJS.ProcessEnv = process.env): UploadLimits => {
@@ -218,7 +228,7 @@ export const handleInit = async (rawBody: unknown, ctx: InitContext, deps: Deps)
     const postId = newPostId();
     const stamp = `${t.y}${t.mo}${t.d}-${t.h}${t.mi}${t.s}`;
     const target: ManifestTarget = live
-      ? { kind: "live", liveId: live.id, liveTitle: live.title, liveDate: live.dateLabel }
+      ? { kind: "live", liveId: live.id, liveTitle: live.title, liveDate: live.dateLabel, eventAt: live.eventAt }
       : { kind: "other" };
     const prefix = uploadPrefix(target, postId);
 
@@ -314,7 +324,7 @@ const buildMail = (manifest: Manifest, accepted: ManifestFile[], rejected: numbe
   const prefix = uploadPrefix(target, manifest.uploadId);
   const total = accepted.reduce((sum, f) => sum + f.declaredSize, 0);
   const place =
-    target.kind === "live" ? `LIVE: ${target.liveDate} ${target.liveTitle} (${target.liveId})` : "その他";
+    target.kind === "live" ? `LIVE: ${liveDateLabel(target)} ${target.liveTitle} (${target.liveId})` : "その他";
   const lines = [
     "Fan moments に投稿が届きました。",
     "",

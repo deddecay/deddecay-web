@@ -460,6 +460,19 @@ test("LIVE フォルダ名はパス区切り等を除いた「開催日 LIVE名�
   assert.equal(liveFolderName("2026.09.20", "A/B:C"), "2026.09.20 A_B_C");
 });
 
+test("LIVE の日付は eventAt を日本時間で読む（保存済みの誤った liveDate より優先。+1日の補正ではない）", () => {
+  // 2026-09-20T15:00:00Z = 日本時間 2026-09-21 00:00。以前の版は UTC で読んで 09.20 と保存していた
+  const target = { kind: "live", liveId: "L1", liveTitle: "T", liveDate: "2026.09.20", eventAt: "2026-09-20T15:00:00.000Z" };
+  const m = manifestOf({ target });
+  assert.match(driveDescription(m, m.files[0]), /LIVE: 2026\.09\.21 T/);
+  // 日本時間の前日 23:59 は前日のまま
+  const before = manifestOf({ target: { ...target, eventAt: "2026-09-20T14:59:59.000Z" } });
+  assert.match(driveDescription(before, before.files[0]), /LIVE: 2026\.09\.20 T/);
+  // eventAt が無い古い manifest は保存済みの liveDate のまま
+  const old = manifestOf({ target: { ...target, eventAt: undefined } });
+  assert.match(driveDescription(old, old.files[0]), /LIVE: 2026\.09\.20 T/);
+});
+
 test("説明にメッセージが無い場合は (なし)", () => {
   const m = manifestOf({ message: "" });
   assert.match(driveDescription(m, m.files[0]), /メッセージ: \(なし\)/);

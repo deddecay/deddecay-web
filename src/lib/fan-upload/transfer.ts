@@ -1,5 +1,5 @@
 import { formatBytes, sanitizeSegment } from "./policy.ts";
-import { jstParts, type Manifest, type ManifestFile } from "./service.ts";
+import { jstParts, liveDateLabel, type Manifest, type ManifestFile } from "./service.ts";
 import type { R2Client } from "./r2";
 import type { DriveClient } from "./drive";
 import type { NotifyMail } from "../mail";
@@ -137,7 +137,7 @@ export const liveFolderName = (liveDate: string, liveTitle: string): string =>
 export const driveDescription = (manifest: Manifest, file: ManifestFile): string => {
   const t = jstParts(Date.parse(manifest.createdAt));
   const place =
-    manifest.target.kind === "live" ? `LIVE: ${manifest.target.liveDate} ${manifest.target.liveTitle}` : "その他";
+    manifest.target.kind === "live" ? `LIVE: ${liveDateLabel(manifest.target)} ${manifest.target.liveTitle}` : "その他";
   return [
     "Fan moments の投稿",
     `区分: ${place}`,
@@ -189,7 +189,7 @@ export const transferUpload = async (
       manifest.target.kind === "live"
         ? await deps.drive.ensureLiveFolder(
             manifest.target.liveId,
-            liveFolderName(manifest.target.liveDate, manifest.target.liveTitle)
+            liveFolderName(liveDateLabel(manifest.target), manifest.target.liveTitle)
           )
         : await deps.drive.ensureOtherFolder();
     state.folderId = folderId;
