@@ -5,7 +5,7 @@ import { sweep } from "@/src/lib/fan-upload/transfer";
 import { fanMomentsEnabled } from "@/src/lib/fan-upload/flags";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 const authorized = (req: NextRequest): boolean => {
   const secret = process.env.CRON_SECRET;

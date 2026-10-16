@@ -7,8 +7,8 @@ import { clientIp } from "@/src/lib/fan-upload/ratelimit";
 import { fanMomentsEnabled } from "@/src/lib/fan-upload/flags";
 
 export const dynamic = "force-dynamic";
-// 先頭バイト検証・メール送信まで含めるため余裕を持たせる
-export const maxDuration = 60;
+// 先頭バイト検証・メール送信に加え、after() の Drive 転送（transferBudgetMs）もこの時間内で動く
+export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   // 公開前は存在しないものとして扱う

@@ -109,7 +109,7 @@ LIVE の選択肢は microCMS の `entries`（type=live）が唯一の正本。
 | `FAN_UPLOAD_ALLOWED_ORIGINS` | 任意。追加で許可するオリジン（カンマ区切り） |
 | `GOOGLE_OAUTH_CLIENT_ID` / `_CLIENT_SECRET` / `_REFRESH_TOKEN` | Drive 転送用。未設定の間は転送しない（アップロードは動く） |
 | `CRON_SECRET` | 16 文字以上のランダム文字列。Vercel Cron が `/api/fan-upload/transfer` を呼ぶときの認証（未設定なら 404） |
-| `FAN_MOMENTS_R2_RETENTION_DAYS` / `FAN_MOMENTS_TRANSFER_BUDGET_SEC` | 任意。Drive 確認後の R2 保持日数（既定 7）/ 1 回の実行で転送に使う秒数（既定 40。関数の上限は 60 秒） |
+| `FAN_MOMENTS_R2_RETENTION_DAYS` / `FAN_MOMENTS_TRANSFER_BUDGET_SEC` | 任意。Drive 確認後の R2 保持日数（既定 7）/ 1 回の実行で転送に使う秒数（既定 220、上限 250。関数の上限は 300 秒。大容量は複数回の実行に分けて続きから転送する） |
 
 必須が欠けている場合、API は 503（「準備中」）を返す。
 

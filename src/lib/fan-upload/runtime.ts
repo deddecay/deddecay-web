@@ -18,10 +18,11 @@ export const buildTransferDeps = (): TransferDeps | null => {
   return { store, drive, sendMail: sendNotification, now: Date.now, retentionMs: retentionDays * 24 * 60 * 60 * 1000 };
 };
 
-// 1 回の実行で転送に使ってよい時間（ミリ秒）。maxDuration（60 秒）より短くしておく
+// 1 回の実行で転送に使ってよい時間（ミリ秒）。maxDuration（300 秒）より短くしておく。
+// 時間の確認はチャンク（32MiB）の送信前だけなので、最後の 1 チャンク分（遅い回線で数十秒）の余裕を残す
 export const transferBudgetMs = (): number => {
   const sec = Number(process.env.FAN_MOMENTS_TRANSFER_BUDGET_SEC);
-  return (Number.isFinite(sec) && sec >= 5 && sec <= 280 ? sec : 40) * 1000;
+  return (Number.isFinite(sec) && sec >= 5 && sec <= 250 ? sec : 220) * 1000;
 };
 
 // 本番用 Deps を環境変数から組み立てる。必須設定が欠けていれば null（API は 503 を返す）。

@@ -227,6 +227,12 @@ export const transferUpload = async (
         if (deps.now() >= deadline) {
           // 時間切れ。続きは次回の実行（リースは手放す）
           state.leaseUntil = 0;
+          // 進んでいるのに何日も終わらない投稿は、失敗でなくてもメールで知らせる（attempts は増やさない）
+          try {
+            await maybeAlert(deps, manifest, state);
+          } catch (alertErr) {
+            console.error("[fan-upload] stalled alert failed:", messageOf(alertErr));
+          }
           await saveState(deps, prefix, state, etag);
           return "partial";
         }
@@ -321,7 +327,7 @@ const maybeAlert = async (deps: TransferDeps, manifest: Manifest, state: DriveSt
   const mail = await deps.sendMail({
     subject: "[Fan moments] Drive転送に失敗",
     text: [
-      "Fan moments の投稿を Google Drive へ転送できていません。",
+      "Fan moments の投稿を Google Drive へ転送しきれていません（失敗、または大容量で複数回に分けて転送中）。",
       "R2 の原本は削除されずに残っています。自動で再試行します。",
       "",
       `投稿ID: ${manifest.uploadId}`,

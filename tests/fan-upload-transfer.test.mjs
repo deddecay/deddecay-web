@@ -387,6 +387,22 @@ test("失敗が続くとメールで 1 回だけ知らせる（原本は残る�
   assert.deepEqual(store.deleted, []);
 });
 
+test("時間切れの繰り返しは失敗ではない（attempts を増やさない）が、24時間たっても終わらなければ 1 回だけ知らせる", async () => {
+  const { store, mails, deps, clock } = setup();
+  assert.equal(await transferUpload(deps, PREFIX, clock.t + 5), "partial");
+  assert.equal(mails.length, 0, "24時間以内は知らせない");
+  clock.t += 25 * 60 * 60 * 1000;
+  assert.equal(await transferUpload(deps, PREFIX, clock.t + 5), "partial");
+  assert.equal(mails.length, 1);
+  const state = await readState(store);
+  assert.equal(state.attempts, 0);
+  assert.equal(state.lastError, null);
+  assert.equal(state.state, "pending");
+  assert.deepEqual(store.deleted, []);
+  assert.equal(await transferUpload(deps, PREFIX, clock.t + 60_000), "done");
+  assert.equal(mails.length, 1, "知らせるのは 1 回だけ");
+});
+
 // ── R2 のクリーン ───────────────────────────────────────
 
 const transferred = async () => {
