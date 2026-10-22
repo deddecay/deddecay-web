@@ -40,6 +40,16 @@ export default function FanUploadScreen({ lives, initialLiveId, limits }: Props)
 
       {/* 上限はサーバーが実際に適用している値（環境変数での変更に追従）を渡す */}
       <FanUploadForm lives={lives} initialLiveId={initialLiveId} limits={limits} onDoneChange={setDone} />
+
+      {/* プライバシーポリシーへの控えめなリンク（フォーム画面の下部だけ。完了画面の構成は変えない） */}
+      {!done && (
+        <Link
+          href="/privacy"
+          className="self-start text-[10px] tracking-widest text-white/35 hover:text-white/65 transition-colors duration-150"
+        >
+          プライバシーポリシー
+        </Link>
+      )}
     </>
   );
 }
