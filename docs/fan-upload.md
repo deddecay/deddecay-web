@@ -261,7 +261,7 @@ R2 への保存・メール 1 通・中断後の再開を確認する。
 5. **OAuth**: Google Cloud Console の公開ステータスが「本番環境」か。トークンの最終更新日は `vercel api /v10/projects/<projectId>/env` の `GOOGLE_OAUTH_REFRESH_TOKEN` の `updatedAt` で分かる（テスト状態ならその 7 日後に失効）。
    値そのものは Vercel 上で sensitive のため読み出せない（`vercel env pull` でも空になる）
 
-- `main` への push で自動デプロイされないときは、コミットに `Co-Authored-By`（オーナー以外の共同作成者）が無いか確認する（Hobby はブロックする）。
+- `main` への push で自動デプロイされないときは、コミットに `Co-Authored-By`（オーナー以外の共同作成者）が無いか確認する（Hobby ではブロックされることがある。毎回ではない）。
   その場合は `vercel --prod` で反映する
 
 ## 障害記録
