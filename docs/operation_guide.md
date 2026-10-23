@@ -176,6 +176,11 @@ vercel --prod --yes
 
 または GitHub と連携している場合は `main` ブランチへの push で自動デプロイされる。
 
+- Hobby プランでは、コミットにオーナー以外の共同作成者（`Co-Authored-By:` 行）があると自動デプロイされない（Vercel 側でブロックされ、デプロイ自体が作られない）。
+  push 後に Vercel の Deployments に出てこなければ、これを確認し、`vercel --prod` で反映する
+- 環境変数を変更したあとは再デプロイが必要（`NEXT_PUBLIC_*` はビルド時に埋め込まれる。サーバー側の値も、新しいデプロイから反映される）
+- Fan moments の Drive 転送の確認手順・障害記録は `docs/fan-upload.md` の「Drive 転送が止まったときの確認手順」「障害記録」を参照
+
 ---
 
 ## Vercel 環境変数

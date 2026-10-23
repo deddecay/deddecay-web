@@ -160,7 +160,8 @@ R2 は受付・一時保管・転送バッファ、**Google Drive が最終保�
 - 投稿ごとのサブフォルダは作らない。ファイル名の先頭の投稿日時で時系列に並び、他の人の `IMG_1355` とも衝突しない
 - LIVE フォルダは名前ではなく `appProperties.liveId` で探す（LIVE 名が後から変わっても別フォルダが増えない）。ファイルの「説明」に、区分・投稿日時・メッセージ・元のファイル名・投稿 ID を入れる
   （Drive アプリの詳細で読める）。同じ内容のうち機械が使う `ddKey`（`{uploadId}:{連番}`）などは `appProperties` に入る
-- 共有設定は一切変更しない（フォルダの共有範囲は `03_media` を引き継ぐ）
+- アプリは共有設定を一切変更しない（フォルダの共有範囲は `03_media` を引き継ぐ）。`Fan moments` フォルダの一般的なアクセスは **「制限付き」** に保つ
+  （同意文と `/privacy` は「他の方からは見られない」としている。2026-10-23 に「リンクを知っている全員」になっていたのを手動で戻した）
 
 ### 流れ
 
@@ -171,7 +172,9 @@ R2 は受付・一時保管・転送バッファ、**Google Drive が最終保�
 4. Drive 設定（`GOOGLE_OAUTH_*`）が無い間は、転送は何もしない（アップロードには影響しない）
 
 - **成功の判定**: ファイルごとに、Drive の最終応答の `size` が R2 のサイズと一致すること。`fileId` と `md5Checksum` を `drive.json` に記録する。全ファイルが揃うと `state: "done"`
-- **重複の防止**: 作成前に `ddKey` で Drive を検索 / `drive.json` の更新は R2 の条件付き書き込み（ETag）とリース（90 秒）で排他 / 保存済みセッションの続きから送る
+- **重複の防止**: 作成前に `ddKey` で Drive を検索 / `drive.json` の更新は R2 の条件付き書き込み（ETag）とリース（90 秒）で排他 / 保存済みセッションの続きから送る。
+  読み取り側の ETag は強い形式（`W/` なし）にそろえてから `If-Match` に使う（弱い形式のままだと毎回 412 になり、再試行が止まる。2026-10 の障害を参照）
+- **スキップの記録**: リース中・書き込み競合（412）で処理を見送ったときは `[fan-upload] transfer skipped post=…` を warn で残す
 - **失敗**: R2 の原本には触れない。試行回数とエラーを記録し、次の実行で再試行する。3 回失敗または 24 時間続くと `[Fan moments] Drive転送に失敗` のメールを 1 回送る
   （トークン失効の再認証が必要な場合もここで気づける）
 
@@ -205,6 +208,8 @@ node scripts/dd-upload-oauth.mjs --login-hint <保存先Googleアカウント> [
 - OAuth アプリは「本番環境」で運用する（Fan moments を公開する機能のため）。「テスト」状態のリフレッシュトークンは約 7 日で失効するので、
   **本番公開より前に発行したトークンは、公開後に発行し直す**。失効した場合は Drive 転送が失敗し、失敗通知メールが届く（R2 の原本は残る）
 - Production と Preview はそれぞれ別のトークンになる（どちらも有効）
+- 現状（2026-10-23）: OAuth アプリは「本番環境」に公開済み（スコープ `drive.file` のみ・審査なし・ロゴ未登録。ブランディングのプライバシーポリシー URL は `/privacy`）。
+  Production のトークンは公開後に `deddecay@gmail.com` で再発行済み。**Preview のトークンは 2026-10-10 発行のテスト期のもので失効している**（Preview で Drive 転送を試すときは `--targets preview` で再発行する）
 
 ## セキュリティ境界
 
@@ -227,6 +232,82 @@ node scripts/dd-upload-oauth.mjs --login-hint <保存先Googleアカウント> [
 `npm test`（R2 / Turnstile / メールはモック。SigV4 署名は AWS 公式ドキュメントの署名例と一致することを確認している）。
 実機確認は Production の直接 URL（公開導線は OFF のまま）で、PC とスマートフォンから大容量動画を送り、
 R2 への保存・メール 1 通・中断後の再開を確認する。
+
+## Drive 転送が止まったときの確認手順
+
+通知メールが届いていても、Drive に保存されたとは限らない（メールは R2 への保存確定で送る）。R2・Cron・Drive をそれぞれ確認する。
+すべて読み取りで行い、原因が分かるまで R2・Drive のデータには触れない。
+
+1. **Drive**: `03_media/Fan moments/{開催日} {LIVE名}/movie|photo` に、投稿日時で始まるファイルがあるか。
+   ファイルの「説明」の `投稿ID:` で投稿と対応づけられる（LIVE フォルダの日付は microCMS の開催日時。投稿日ではない）
+2. **転送ログ**: `vercel logs --environment production --since 1h --query "/api/fan-upload/transfer" --json`
+   （Hobby はログの保持が短い。過去の Cron のログは残っていないことが多いので、必要なら 3. で実行してすぐ見る）
+
+   | ログ | 意味 | 対処 |
+   |---|---|---|
+   | `token refresh failed (400)` | リフレッシュトークンの失効・取り消し（invalid_grant） | OAuth アプリの公開状態を確認し、トークンを再発行 → 再デプロイ |
+   | `token refresh failed (401)` | クライアント ID / シークレットの不一致 | `GOOGLE_OAUTH_CLIENT_*` を確認 |
+   | `drive transfer failed post=…` | その投稿の転送失敗（`lastError` に理由） | 次回の Cron で自動再試行される |
+   | `transfer skipped post=…` | リース中・書き込み競合で見送り | 続くようなら `drive.json` の `leaseUntil` と ETag の扱いを疑う |
+   | `cleanup skipped post=…: Drive 側の確認に失敗` | 転送済みのはずの Drive ファイルが無い（削除・ゴミ箱） | R2 は消されない（安全側）。下の「障害記録」の照合手順で確認 |
+   | ログ無しで終わる | 正常（成功は記録しない） | Drive で実ファイルを確認 |
+
+3. **手動で 1 回実行**: `vercel crons run /api/fan-upload/transfer`（日次 Cron と同じ処理。1 回あたり転送は約 220 秒、目安 1.5GB 前後）。
+   大容量で終わらなければ、続きは次回の実行で送る（送信済みは再送しない）
+4. **R2 の状態**: `fan-moments/{live/{liveId}|other}/{投稿ID}/` の `manifest.json`（`status`・`files[].result`）と `drive.json`
+   （`state`・`attempts`・`lastError`・`files[].done/offset/driveFileId`）。Cloudflare ダッシュボードで開くか、
+   R2 の **読み取り専用**トークン（Object Read only・対象バケットのみ・TTL 1 日）を repository の外（例: `/Users/hayato/site/secrets/deddecay/r2-readonly.env`、権限 600）に置いて `R2Client` で読む。
+   `drive.json` の `sessionUrl` は送信先 URL なので画面・チャット・ログに出さない。調査後はトークンを失効させ、ファイルを削除する
+5. **OAuth**: Google Cloud Console の公開ステータスが「本番環境」か。トークンの最終更新日は `vercel api /v10/projects/<projectId>/env` の `GOOGLE_OAUTH_REFRESH_TOKEN` の `updatedAt` で分かる（テスト状態ならその 7 日後に失効）。
+   値そのものは Vercel 上で sensitive のため読み出せない（`vercel env pull` でも空になる）
+
+- `main` への push で自動デプロイされないときは、コミットに `Co-Authored-By`（オーナー以外の共同作成者）が無いか確認する（Hobby はブロックする）。
+  その場合は `vercel --prod` で反映する
+
+## 障害記録
+
+### 2026-10-19〜23 Drive 転送の停止（解決済み）
+
+- **症状**: 10/19 以降の投稿が Drive に保存されない（アップロード受付・通知メールは正常）。10/18 以前の大容量投稿にも、途中まで送って止まったものがあった
+- **原因 1（10/19〜）: リフレッシュトークンの失効**。OAuth アプリが「テスト」状態のまま 10/12 16:21 に発行したトークンが、7 日後の 10/19 16:21 に失効。
+  以降の転送はすべて `token refresh failed (400)`
+- **原因 2（10/12 の導入時から）: 失敗・途中の投稿が再試行されない**。既存の `drive.json` を読んだときの ETag をそのまま `If-Match` に使っており、
+  R2 から弱い形式（`W/"…"`）で返ると書き込みが毎回 412 になって、Cron は何も記録せず見送っていた。投稿直後の 1 回（`drive.json` が無い状態）でしか転送されず、
+  そこで終わらなかった投稿・失敗した投稿は止まったままになっていた（例: 10/15 投稿の 6 本 3.52 GiB は 1 本も送られていなかった）
+- **対応**:
+  1. OAuth アプリを「本番環境」に公開（ブランディングに `https://deddecay.tokyo` と `https://deddecay.tokyo/privacy`。`/privacy` を新設し `/upload` 下部からリンク: commit `9269ab3`）
+  2. `deddecay@gmail.com` でトークンを再発行し Production に登録 → 再デプロイ
+  3. ETag を強い形式にそろえ、見送り理由をログに残す修正と回帰テスト（commit `88543ec`）
+  4. 手動で転送を 3 回実行（10/23 12:48・13:46・13:54）
+- **復旧結果**（Drive の実ファイルとサイズを確認、重複なし）:
+  - `yxYv5InwpLFRyz69`（10/21 投稿・1 本 138,900,921 B）→ `2026.10.16 恵比寿KATA『WE PLAY MUSIC VOLUME②』/movie`
+  - `dCytlZ1_iex6d_I_`（10/15 投稿・6 本 計 3,781,338,327 B）→ `2026.09.20 Spotify O-Crest『CASCADE』/movie`（2 本目は途中のオフセットから再開）
+  - `zGThYY1nCtHi9XPY` の 4 本目（922,892,454 B）→ 10/16 の movie
+- **同時に見つかったこと**: `Fan moments` フォルダが「リンクを知っている全員」になっていた → 10/23 に「制限付き」へ戻し、配下のフォルダ 10・動画 29 本がオーナーのみであることを確認
+
+### 2026-10-23 R2 と Drive の照合結果
+
+R2（`fan-moments/` 117 オブジェクト・35 投稿）を読み取り専用で一覧化し、`drive.json` の `driveFileId` と Drive の実ファイルを照合した。
+
+| 区分 | 件数 | 状態 |
+|---|---|---|
+| 転送済み・Drive と一致 | 14 投稿 | ファイル ID・サイズとも一致 |
+| 転送済み・Drive から削除済み | 18 投稿 / 22 ファイル（約 254 MB） | R2 の原本は残存・サイズ一致。Drive は 22 件とも ID で見つからない（ゴミ箱も空）。Cron のたびに `cleanup skipped` が出る |
+| 中断（未完了）投稿 | 3 投稿 | `manifest.json`（`status: pending`）のみで原本なし |
+| Drive のみ | 1 ファイル | `y4QsbLJLfVtl44Rn`。保持期間後にアプリが Drive を確認して R2 を削除済み（正常） |
+
+### 保留事項（削除は未実施）
+
+- **テスト投稿 18 件の R2 削除**: 投稿日時が 10/12 15:24〜10/14 12:57 で、一般の導線（TOP リンク 10/15 18:16〜）より前。
+  メッセージ「テスト」「てすと」、`test_photo.png`、同じスクリーンショット・同じ写真動画の繰り返し投稿。運営者が Drive から削除済み。
+  削除する場合は Cloudflare ダッシュボードで投稿フォルダ単位で消す（読み取り専用トークンでは消せない）。
+  - `live/bg95k9pc7kmy/`: `Y8f_IWuAoAE2_yqi` `BT0HERHRI3Wn_wUj` `WZxLpO8fV9iNq9J5` `gl41pcOtW4Vv5apg` `WKFd8YTGmHE91Ggp`
+  - `live/h45il2i2zwzw/`: `vclvhl7jXkb_k9Vl` `b-N9_Lo8BySPP8F2` `53C1IDY9Zb9bR_Zu` `dLLLgvvxLrwEdYhd` `GfiBD4ywSBVzHaKY` `-dc15IsSak1kCTil` `5LeGnral0FgGypxe` `U8nDZPRde7fxQTaC`
+  - `other/`: `IKwMBZt0X1XUJ1PH` `04KGrxYn25QsY_ui` `WkQd1jggKvj314f9` `24eUx_Ht2gqFgmau` `Pw2Me0ezr_IXlhWJ`
+  - **`U8nDZPRde7fxQTaC`（10/13 15:50、IMG_1570.jpeg / IMG_1571.mov）はテスト投稿か未確定**。名前からは判別できないため、削除前に運営者の端末の撮影記録で確認する
+- **中断投稿 3 件**（別管理）: `live/bg95k9pc7kmy/tM5HIvR8-d3kqAoy`・`live/bg95k9pc7kmy/5t74qlczmJ_xJ2a8`（10/12 テスト）、
+  `live/1ydly_f3qep/iRIIpmXk7rAF-wJT`（10/18 02:55・IMG_9629.mov。同名の元ファイルの投稿 `bBkoknAc7NstKBCU` が同日 05:16 に完了済み）。
+  アプリは中断投稿の `manifest.json` を消さない。保管・削除の運用が決まるまで残す
 
 ## 実機 E2E の記録
 
