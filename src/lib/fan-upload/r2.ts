@@ -124,6 +124,9 @@ const blocks = (xml: string, name: string): string[] =>
 
 type FetchLike = typeof fetch;
 
+// 弱い ETag（W/"…"）を強い形式（"…"）にする。If-Match は強い比較なので、弱い形式のままでは一致しない
+export const strongEtag = (etag: string | null): string => (etag ?? "").replace(/^W\//, "");
+
 export class R2Client {
   readonly bucket: string;
   private usageCache: { bytes: number; at: number } | null = null;
@@ -269,10 +272,15 @@ export class R2Client {
   }
 
   // 本文と ETag を一緒に取得する（条件付き書き込みの前提）
+  // 圧縮された応答では ETag が弱い形式（W/"…"）になり、そのまま If-Match に渡すと必ず 412 になる。
+  // 圧縮を求めず（identity）、念のため W/ も外して、書き込み側と同じ強い形式にそろえる
   async getObject(key: string): Promise<{ text: string; etag: string } | null> {
-    const res = await this.send("GET", this.objectPath(key), {}, { allow404: true });
+    const res = await this.send("GET", this.objectPath(key), {}, {
+      allow404: true,
+      headers: { "Accept-Encoding": "identity" },
+    });
     if (res.status === 404) return null;
-    return { text: await res.text(), etag: res.headers.get("etag") ?? "" };
+    return { text: await res.text(), etag: strongEtag(res.headers.get("etag")) };
   }
 
   // 条件付き書き込み。ifMatch=ETag なら「その版のときだけ」、ifNoneMatch=true なら「存在しないときだけ」書く。
@@ -287,7 +295,7 @@ export class R2Client {
     if (cond.ifMatch) headers["If-Match"] = cond.ifMatch;
     if (cond.ifNoneMatch) headers["If-None-Match"] = "*";
     const res = await this.send("PUT", this.objectPath(key), {}, { body, headers });
-    return res.headers.get("etag") ?? "";
+    return strongEtag(res.headers.get("etag"));
   }
 
   // 任意範囲（両端を含む）の読み出し。Drive への転送でチャンクごとに使う

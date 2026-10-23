@@ -527,6 +527,103 @@ test("R2Client: 条件が合わない書き込みは status 412 のエラー", a
   await assert.rejects(client.putObjectIf("k", "x", "text/plain", { ifMatch: '"v"' }), (e) => e.status === 412);
 });
 
+test("R2Client: 読み取りの弱い ETag（W/\"…\"）は強い形式にそろえ、圧縮を求めない", async () => {
+  const seen = [];
+  const client = r2((url, init) => {
+    seen.push(init);
+    if (init.method === "PUT") return new Response("", { status: 200, headers: { etag: 'W/"v2"' } });
+    return new Response("{}", { status: 200, headers: { etag: 'W/"v1"' } });
+  });
+  assert.deepEqual(await client.getObject("fan-moments/x/drive.json"), { text: "{}", etag: '"v1"' });
+  assert.equal(seen[0].headers["Accept-Encoding"], "identity");
+  assert.equal(await client.putObjectIf("fan-moments/x/drive.json", "{}", "application/json", { ifMatch: '"v1"' }), '"v2"');
+});
+
+// R2 の振る舞いを模したフェイク: GET は弱い ETag を返し、PUT の If-Match は強い比較（W/ 付きは一致しない）
+const fakeR2Fetch = () => {
+  const objects = new Map();
+  let n = 0;
+  const keyOf = (url) => decodeURIComponent(new URL(url).pathname.replace(/^\/bkt\//, ""));
+  const fetchImpl = async (url, init) => {
+    const key = keyOf(String(url));
+    const cur = objects.get(key);
+    if (init.method === "PUT") {
+      const ifMatch = init.headers["If-Match"];
+      if ((ifMatch && (!cur || ifMatch !== `"${cur.v}"`)) || (init.headers["If-None-Match"] && cur)) {
+        return new Response("<Error><Code>PreconditionFailed</Code></Error>", { status: 412 });
+      }
+      const v = `e${++n}`;
+      objects.set(key, { bytes: typeof init.body === "string" ? new TextEncoder().encode(init.body) : init.body, v });
+      return new Response("", { status: 200, headers: { etag: `"${v}"` } });
+    }
+    if (!cur) return new Response("", { status: 404 });
+    const range = init.headers.Range ? /bytes=(\d+)-(\d+)/.exec(init.headers.Range) : null;
+    const body = range ? cur.bytes.slice(Number(range[1]), Number(range[2]) + 1) : cur.bytes;
+    const weak = init.headers["Accept-Encoding"] !== "identity"; // 圧縮されうる応答は弱い ETag
+    return new Response(body, { status: range ? 206 : 200, headers: { etag: `${weak ? "W/" : ""}"${cur.v}"` } });
+  };
+  return { objects, fetchImpl };
+};
+
+test("回帰: 失敗した投稿（drive.json が既にある）は、次の実行で実際に再試行され完了する（R2Client 経由）", async () => {
+  const ctx = setup();
+  const fake = fakeR2Fetch();
+  for (const [key, o] of ctx.store.objects) fake.objects.set(key, { bytes: o.bytes, v: "init" });
+  const store = new R2Client({ accountId: "acct", bucket: "bkt", accessKeyId: "AK", secretAccessKey: "SK" }, fake.fetchImpl, () => ctx.clock.t);
+  const deps = { ...ctx.deps, store };
+
+  // 1 回目: トークン失効で失敗（10/21 の状態: state=failed, attempts=1）
+  ctx.drive.ensureLiveFolder = async () => {
+    throw Object.assign(new Error("token refresh failed (400)"), { status: 400 });
+  };
+  assert.equal(await transferUpload(deps, PREFIX, ctx.clock.t + 60_000), "failed");
+  const readState = async () => JSON.parse((await store.getObject(`${PREFIX}/drive.json`)).text);
+  assert.equal((await readState()).attempts, 1);
+
+  // 2 回目（再認証後の Cron）: スキップされずに転送し、完了する
+  ctx.drive.ensureLiveFolder = async (liveId) => `folder-live-${liveId}`;
+  assert.equal(await transferUpload(deps, PREFIX, ctx.clock.t + 60_000), "done");
+  const done = await readState();
+  assert.equal(done.state, "done");
+  assert.equal(done.files[0].done, true);
+  assert.equal(ctx.drive.state.files.size, 1, "Drive への保存は 1 件だけ");
+});
+
+test("回帰: 途中で時間切れになった投稿は、次の実行で続きから送る（R2Client 経由、重複作成しない）", async () => {
+  const ctx = setup({ chunkBytes: 40 });
+  const fake = fakeR2Fetch();
+  for (const [key, o] of ctx.store.objects) fake.objects.set(key, { bytes: o.bytes, v: "init" });
+  const store = new R2Client({ accountId: "acct", bucket: "bkt", accessKeyId: "AK", secretAccessKey: "SK" }, fake.fetchImpl, () => ctx.clock.t);
+  const deps = { ...ctx.deps, store };
+
+  // 1 チャンク（40 バイト）送ったところで時間切れ
+  assert.equal(await transferUpload(deps, PREFIX, ctx.clock.t + 5), "partial");
+  assert.equal(await transferUpload(deps, PREFIX, ctx.clock.t + 60_000), "done");
+  assert.equal(ctx.drive.state.sessions.size, 1, "セッションは作り直さない");
+  assert.equal(ctx.drive.state.files.size, 1);
+  assert.deepEqual([...ctx.drive.state.files.values()][0].bytes, Buffer.from(ctx.bytes));
+});
+
+test("スキップ理由をログに残す: 書き込み競合（412）でリースを取れなかったとき", async () => {
+  const ctx = setup();
+  await transferUpload(ctx.deps, PREFIX, ctx.clock.t + 5); // drive.json を作る（途中で時間切れ）
+  const original = ctx.store.putObjectIf.bind(ctx.store);
+  ctx.store.putObjectIf = async () => {
+    throw Object.assign(new Error("precondition failed"), { status: 412 });
+  };
+  const warnings = [];
+  const warn = console.warn;
+  console.warn = (msg) => warnings.push(String(msg));
+  try {
+    assert.equal(await transferUpload(ctx.deps, PREFIX, ctx.clock.t + 60_000), "skipped");
+  } finally {
+    console.warn = warn;
+    ctx.store.putObjectIf = original;
+  }
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /transfer skipped post=UP1: .*\(412\)/);
+});
+
 // ── DriveClient の転送用 API ────────────────────────────
 
 const drive = (handler) =>

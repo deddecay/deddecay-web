@@ -168,14 +168,22 @@ export const transferUpload = async (
   const state = loaded.state ?? initialState(manifest, accepted, deps.now());
   let etag = loaded.etag;
   if (state.state === "done") return "skipped"; // 転送済み（クリーンは別処理）
-  if (state.leaseUntil > deps.now()) return "skipped"; // 他の処理が実行中
+  if (state.leaseUntil > deps.now()) {
+    // 他の処理が実行中。続くようなら（リースが切れずに残っている等）ログで気づけるようにする
+    console.warn(`[fan-upload] transfer skipped post=${manifest.uploadId}: lease held until ${new Date(state.leaseUntil).toISOString()}`);
+    return "skipped";
+  }
 
   // リース（実行権）を取る。ここで 412 になれば他の処理が先に取った
   try {
     state.leaseUntil = deps.now() + LEASE_MS;
     etag = await saveState(deps, prefix, state, etag);
   } catch (err) {
-    if (isStatus(err, [412])) return "skipped";
+    if (isStatus(err, [412])) {
+      // 毎回ここで退いていると、失敗・途中の投稿が二度と再試行されない（読み取り側 ETag の形式違いなど）
+      console.warn(`[fan-upload] transfer skipped post=${manifest.uploadId}: drive.json changed by another run (412)`);
+      return "skipped";
+    }
     throw err;
   }
 
@@ -302,7 +310,11 @@ export const transferUpload = async (
     await saveState(deps, prefix, state, etag);
     return "done";
   } catch (err) {
-    if (isStatus(err, [412])) return "skipped"; // 実行権を失った。後始末は勝った側に任せる
+    if (isStatus(err, [412])) {
+      // 実行権を失った。後始末は勝った側に任せる
+      console.warn(`[fan-upload] transfer stopped post=${manifest.uploadId}: lost the lease (412)`);
+      return "skipped";
+    }
     console.error(`[fan-upload] drive transfer failed post=${manifest.uploadId}:`, messageOf(err));
     state.state = "failed";
     state.attempts += 1;
