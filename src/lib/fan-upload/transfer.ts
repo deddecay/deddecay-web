@@ -78,6 +78,8 @@ const isStatus = (err: unknown, status: number[]) =>
   typeof (err as { status?: number })?.status === "number" && status.includes((err as { status: number }).status);
 
 const messageOf = (err: unknown) => (err instanceof Error ? err.message : String(err)).slice(0, 300);
+// トークンの失効・設定ミス。再試行では直らず、直すまで全投稿の転送が止まる
+const isTokenFailure = (err: unknown) => isStatus(err, [400, 401]) && messageOf(err).startsWith("token refresh failed");
 
 // ── 状態の読み書き ─────────────────────────────────────
 
@@ -321,7 +323,7 @@ export const transferUpload = async (
     state.lastError = messageOf(err);
     state.leaseUntil = 0;
     try {
-      await maybeAlert(deps, manifest, state);
+      await maybeAlert(deps, manifest, state, isTokenFailure(err));
       await saveState(deps, prefix, state, etag);
     } catch (saveErr) {
       console.error("[fan-upload] drive state save failed:", messageOf(saveErr));
@@ -331,10 +333,10 @@ export const transferUpload = async (
 };
 
 // 失敗が続いている投稿を 1 回だけメールで知らせる（R2 の原本は残っている）
-const maybeAlert = async (deps: TransferDeps, manifest: Manifest, state: DriveState) => {
+const maybeAlert = async (deps: TransferDeps, manifest: Manifest, state: DriveState, immediate = false) => {
   if (state.alertedAt) return;
   const age = deps.now() - Date.parse(manifest.completedAt ?? manifest.createdAt);
-  if (age < ALERT_AFTER_MS && state.attempts < ALERT_AFTER_ATTEMPTS) return;
+  if (!immediate && age < ALERT_AFTER_MS && state.attempts < ALERT_AFTER_ATTEMPTS) return;
   const total = manifest.files.filter((f) => f.result === "accepted").reduce((s, f) => s + f.declaredSize, 0);
   const mail = await deps.sendMail({
     subject: "[Fan moments] Drive転送に失敗",
@@ -393,6 +395,7 @@ export type SweepResult = { transferred: number; partial: number; failed: number
 
 export const sweep = async (deps: TransferDeps, deadline: number): Promise<SweepResult> => {
   const result: SweepResult = { transferred: 0, partial: 0, failed: 0, deleted: 0 };
+  let tokenError: string | null = null;
   const listed = await deps.store.listKeys(ROOT_PREFIX);
   const keysByPrefix = new Map<string, string[]>();
   for (const { key } of listed) {
@@ -416,7 +419,25 @@ export const sweep = async (deps: TransferDeps, deadline: number): Promise<Sweep
     } catch (err) {
       // 1 件の異常（壊れた JSON など）で他の投稿の処理を止めない
       console.error(`[fan-upload] sweep error prefix=${prefix}:`, messageOf(err));
+      if (isTokenFailure(err)) tokenError = messageOf(err);
       result.failed++;
+    }
+  }
+  // 新しい投稿が無くても、保持中の投稿の確認で失効に気づける。直るまで実行ごとに 1 通知らせる
+  if (tokenError) {
+    try {
+      await deps.sendMail({
+        subject: "[Fan moments] Google Drive の認証エラー",
+        text: [
+          "Google Drive の認証に失敗しています。直るまで Drive への転送は止まります（R2 の原本は残っています）。",
+          "",
+          `エラー: ${tokenError}`,
+          "",
+          "OAuth アプリの公開ステータスを確認し、トークンを再発行して再デプロイしてください（手順: docs/fan-upload.md）。",
+        ].join("\n"),
+      });
+    } catch (mailErr) {
+      console.error("[fan-upload] token alert failed:", messageOf(mailErr));
     }
   }
   return result;

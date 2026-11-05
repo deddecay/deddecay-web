@@ -387,6 +387,46 @@ test("失敗が続くとメールで 1 回だけ知らせる（原本は残る�
   assert.deepEqual(store.deleted, []);
 });
 
+test("トークンの失敗は 1 回目ですぐ知らせる（一時的な失敗は 1 回目では知らせない）", async () => {
+  const a = setup();
+  a.drive.state.failNext = Object.assign(new Error("token refresh failed (400 invalid_grant)"), { status: 400 });
+  assert.equal(await transferUpload(a.deps, PREFIX, a.clock.t + 60_000), "failed");
+  assert.equal(a.mails.length, 1);
+  assert.match(a.mails[0].text, /invalid_grant/);
+
+  const b = setup();
+  b.drive.state.failNext = Object.assign(new Error("drive POST failed (503)"), { status: 503 });
+  assert.equal(await transferUpload(b.deps, PREFIX, b.clock.t + 60_000), "failed");
+  assert.equal(b.mails.length, 0);
+});
+
+test("sweep: 保持中の投稿の確認でトークンの失敗に気づいたら、実行ごとに 1 通だけ知らせる", async () => {
+  const { store, mails, deps, clock } = setup();
+  const failing = Object.assign(new Error("token refresh failed (400 invalid_grant)"), { status: 400 });
+  deps.drive.getFileInfo = async () => {
+    throw failing;
+  };
+  assert.equal(await transferUpload(deps, PREFIX, clock.t + 60_000), "done");
+  store.put("fan-moments/other/second/manifest.json", JSON.stringify({ status: "pending" }));
+  clock.t += 30 * DAY;
+  const res = await sweep(deps, clock.t + 60_000);
+  assert.equal(res.failed, 1);
+  assert.equal(mails.filter((m) => /認証エラー/.test(m.subject)).length, 1);
+  assert.deepEqual(store.deleted, []);
+});
+
+test("DriveClient: トークン更新の失敗はエラー種別だけをメッセージに残す", async () => {
+  const fail = (body, status = 400) =>
+    new DriveClient({ clientId: "c", clientSecret: "s", refreshToken: "r" }, async () => new Response(body, { status })).findByKey("k");
+  await assert.rejects(fail(JSON.stringify({ error: "invalid_grant", error_description: "expired" })), (err) => {
+    assert.equal(err.message, "token refresh failed (400 invalid_grant)");
+    assert.equal(err.status, 400);
+    return true;
+  });
+  await assert.rejects(fail("<html>not json</html>", 400), { message: "token refresh failed (400)" });
+  await assert.rejects(fail(JSON.stringify({ error: "SECRET value!" }), 401), { message: "token refresh failed (401)" });
+});
+
 test("時間切れの繰り返しは失敗ではない（attempts を増やさない）が、24時間たっても終わらなければ 1 回だけ知らせる", async () => {
   const { store, mails, deps, clock } = setup();
   assert.equal(await transferUpload(deps, PREFIX, clock.t + 5), "partial");

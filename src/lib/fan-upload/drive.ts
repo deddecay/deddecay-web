@@ -75,7 +75,12 @@ export class DriveClient {
       }),
       signal: AbortSignal.timeout(10_000),
     });
-    if (!res.ok) throw new DriveError(`token refresh failed (${res.status})`, res.status);
+    if (!res.ok) {
+      // 失効（invalid_grant）か設定ミス（invalid_client）かを切り分けられるよう、エラー種別だけ残す
+      const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
+      const code = typeof body?.error === "string" && /^[a-z_]{1,40}$/.test(body.error) ? ` ${body.error}` : "";
+      throw new DriveError(`token refresh failed (${res.status}${code})`, res.status);
+    }
     const data = (await res.json()) as { access_token?: string; expires_in?: number };
     if (!data.access_token) throw new DriveError("token refresh: no access_token", 500);
     this.accessToken = {
