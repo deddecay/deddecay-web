@@ -287,6 +287,12 @@ test("mail: 行き方のリンク直下に番号付きの道順を出す（番�
   assert.ok(t.indexOf("3. 4階までお越しください") < t.indexOf("備考・注意事項"));
 });
 
+test("mail: 会場住所の下に 1 行あけて行き方を続ける", () => {
+  const mail = buildApplicantMail(reservation, { address: "東京都テスト1-2-3", accessUrl: "https://www.dropbox.com/v" });
+  assert.match(mail.text, /・会場住所：東京都テスト1-2-3\n\n・会場への行き方（動画あり）/);
+  assert.match(mail.html, /<div>会場住所：東京都テスト1-2-3<\/div>\n<br>\n<div><a href/);
+});
+
 test("mail: 道順が無ければ一覧を出さない", () => {
   const mail = buildApplicantMail(reservation, { address: "x", accessUrl: "https://www.dropbox.com/v" });
   assert.ok(!mail.html.includes("<ol"));

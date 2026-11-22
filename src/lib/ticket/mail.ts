@@ -41,7 +41,7 @@ const safeUrl = (url: string): string | null => {
   }
 };
 
-type Line = { label: string; value: string; href?: string | null; steps?: string[] };
+type Line = { label: string; value: string; href?: string | null; steps?: string[]; blankAfter?: boolean };
 type Section = { heading: string; lines: Line[] } | { heading: string; notes: string[] };
 
 const render = (intro: string[], sections: Section[], outro: string[]) => {
@@ -66,6 +66,11 @@ const render = (intro: string[], sections: Section[], outro: string[]) => {
           html.push(
             `<ol style="margin:4px 0 0;padding-left:1.6em">\n${l.steps.map((s) => `<li>${escapeHtml(s)}</li>`).join("\n")}\n</ol>`
           );
+        }
+        // 次の行との間を 1 行あける
+        if (l.blankAfter) {
+          text.push("");
+          html.push("<br>");
         }
       }
     } else {
@@ -115,7 +120,7 @@ export const buildApplicantMail = (r: Reservation, venue: Venue): Mail => {
       {
         heading: "会場案内",
         lines: [
-          { label: "会場住所", value: address || PENDING },
+          { label: "会場住所", value: address || PENDING, blankAfter: true },
           accessUrl
             ? { label: ACCESS_LABEL, value: "", href: accessUrl, steps }
             : { label: ACCESS_LABEL, value: steps.length ? "" : PENDING, steps },
