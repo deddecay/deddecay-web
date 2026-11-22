@@ -7,6 +7,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { getLiveById, getAdjacentLiveEntries, formatLiveDate } from "@/src/lib/microcms";
 import { fanMomentsPublic } from "@/src/lib/fan-upload/flags";
+import { ticketPublic, ticketLiveId } from "@/src/lib/ticket/flags";
+import { EVENT, TICKET_PATH } from "@/src/lib/ticket/event";
 
 type Props = {
   params: Promise<{ contentId: string }>;
@@ -80,6 +82,16 @@ export default async function LiveDetailPage({ params, searchParams }: Props) {
               className="text-xs sm:text-sm leading-relaxed text-white/75 [&_a]:underline [&_a:hover]:text-white/95 [&_p]:mb-3 [&_h2]:text-xs [&_h2]:tracking-widest [&_h2]:text-white/55 [&_h2]:mt-5 [&_ul]:list-disc [&_ul]:pl-4 [&_li]:mb-1"
               dangerouslySetInnerHTML={{ __html: entry.body }}
             />
+          )}
+
+          {/* 12/6 フロアライブ チケット申し込み（公開前は非表示。TICKET_1206_LIVE_ID の記事にだけ出す） */}
+          {ticketPublic() && ticketLiveId() === contentId && (
+            <Link
+              href={TICKET_PATH}
+              className="text-[10px] tracking-widest text-white/55 hover:text-white/85 transition-colors duration-150"
+            >
+              → {EVENT.shortLabel} チケット申し込み
+            </Link>
           )}
 
           {/* Fan moments への導線（公開前は非表示） */}

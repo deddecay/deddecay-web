@@ -1,6 +1,6 @@
 # deddecay official website — サイト仕様書
 
-> 最終更新：2026-05-28（new 表示実装・公開制御 microCMS 標準移行・public/ 整理・OGP実装・ambient layer 構想記録）
+> 最終更新：2026-11-22（12/6 フロアライブ チケット申し込みを非公開で実装。詳細は [ticket.md](ticket.md)）
 > 本ドキュメントは現行の公開済み実装を記録したものです。
 
 ---
@@ -37,6 +37,9 @@ app/
   _components/
     NavMenu.tsx                     # 展開メニュー（Client Component）
     ContactForm.tsx                 # CONTACTフォーム（Client Component）
+    TicketForm.tsx                  # 12/6 チケット申し込みフォーム（Client Component）
+  tickets/
+    2026-12-06/page.tsx             # 12/6 チケット申し込み（非公開。ticket.md）
   news/
     [slug]/page.tsx                 # NEWS詳細（param は contentId として扱う）
   live/
@@ -47,9 +50,11 @@ app/
     page.tsx                        # NEWS / LIVE 共通過去ログ
   api/
     contact/route.ts                # CONTACTフォーム送信 API
+    tickets/2026-12-06/route.ts     # チケット申し込み API
 src/
   lib/
     microcms.ts                     # CMSクライアント・型・fetch関数
+    ticket/                         # チケット申し込み（event / flags / ledger / mail / runtime）
   data/
     biography.ts                    # BIOGRAPHY フォールバック用静的データ
     discography.ts                  # DISCOGRAPHY フォールバック用静的データ
@@ -62,6 +67,7 @@ public/
 docs/
   site_spec.md                      # 本ファイル（現行仕様）
   operation_guide.md                # 投稿・運用ガイド
+  ticket.md                         # 12/6 チケット申し込みの仕様・運用
   top_spec.md                       # 旧仕様書（CMS連携前、参考用）
 ```
 
@@ -95,6 +101,8 @@ docs/
 | `/api/contact` | CONTACTフォーム送信エンドポイント（POST） |
 | `/fan-moments` | Fan moments のメインページ（説明＋「投稿する」で `/upload` へ）。`FAN_MOMENTS_ENABLED=1` でのみ表示、未設定は 404。noindex |
 | `/upload` | Fan moments の投稿フォーム（既存。TOP からは直接リンクしない） |
+| `/tickets/2026-12-06` | 12/6 フロアライブ チケット申し込み。`TICKET_1206_ENABLED=1` でのみ表示、未設定は 404。noindex（[ticket.md](ticket.md)） |
+| `/api/tickets/2026-12-06` | チケット申し込み API（POST）。ENABLED 未設定は 404 |
 
 ---
 
@@ -258,6 +266,7 @@ Copyright
 - 表示日時（`eventDate`、なければ `publishedAt`）
 - タイトル / 本文
 - 前後ナビゲーション（NEWS と同様）
+- `TICKET_1206_PUBLIC=1` かつ contentId が `TICKET_1206_LIVE_ID` の記事にだけ、「→ 12月6日 フロアライブ チケット申し込み」リンクを出す
 
 ---
 
@@ -352,6 +361,12 @@ ALBUM / EP  /  SINGLE          ← カテゴリ切替
 - `tabIndex={-1}` / `autoComplete="off"` / `aria-hidden="true"`
 - bot がフィールドを入力した場合、サーバー側はサイレントに `{ ok: true }` を返す（bot には検知されない）
 
+### 12/6 フロアライブ チケット申し込みへの導線（公開前は非表示）
+
+- `TICKET_1206_PUBLIC=1`（と ENABLED）のときだけ、CONTACT 展開の最上部に「12月6日 フロアライブ チケット申し込み」リンクを出す（通常の種別プルダウンとは独立。パネルの max-h は 560px になる）
+- `/?contact=ticket` で TOP を開くと CONTACT を展開し、種別「チケット関連」を選択済みにする（チケットの確認画面・自動返信からの導線）。それ以外は従来どおり未選択
+- 通常の問い合わせの送信処理（`/api/contact`）は変更なし
+
 ### フロー
 
 1. フォーム入力 → 「確認する」で Preview モーダル
@@ -395,6 +410,11 @@ ALBUM / EP  /  SINGLE          ← カテゴリ切替
 | `RESEND_API_KEY` | Resend API キー |
 | `CONTACT_TO_EMAIL` | CONTACTフォームの受信先アドレス |
 | `CONTACT_FROM_EMAIL` | CONTACTフォームの送信元（Resend 検証済みドメイン） |
+| `TICKET_1206_ENABLED` / `TICKET_1206_PUBLIC` / `TICKET_1206_LIVE_ID` | 12/6 チケット申し込みの公開制御（[ticket.md](ticket.md)） |
+| `TICKET_1206_VENUE_ADDRESS` / `TICKET_1206_ACCESS_URL` | 会場の正確な住所・行き方の動画 URL（自動返信メールにだけ使う。サーバー専用） |
+| `TICKET_FROM_EMAIL` | 任意。チケット自動返信の送信元 |
+
+Fan moments の環境変数（R2・Upstash など）は [fan-upload.md](fan-upload.md) を参照。
 
 ---
 
@@ -477,3 +497,11 @@ signal-dot-01.png
 | sitemap / robots.txt | — |
 | CONTACT 強化 | reCAPTCHA / Cloudflare Turnstile / rate limiting |
 | 自動返信メール | 問い合わせ者への受信確認 |
+
+---
+
+## 変更履歴
+
+| 日付 | 内容 |
+|---|---|
+| 2026-11-22 | 12/6 フロアライブ チケット申し込みを追加（非公開。フォーム・確認・自動返信・定員管理・運用スクリプト）。CONTACT に種別の初期値指定（`?contact=ticket`）を追加 |

@@ -1,0 +1,148 @@
+// チケット申し込みの自動返信（申込者宛て）と運営通知のメール本文。
+// 会場の正確な住所・アクセス動画 URL はこのメールにだけ載せる（画面・API・クライアントのコードには出さない）。
+
+import { EVENT, formatYen, totalPrice } from "./event.ts";
+import type { Reservation } from "./ledger.ts";
+
+export type Venue = { address: string; accessUrl: string };
+
+export type Mail = { subject: string; text: string; html: string; replyTo?: string };
+
+export const APPLICANT_SUBJECT = `【deddecay】${EVENT.shortLabel} チケット申し込み受付完了`;
+
+const PAYMENT_NOTES = [
+  "チケット料金は当日、会場にてお支払いください。",
+  "お支払いは原則として現金でお願いいたします。クレジットカード・PayPayもご利用いただけますが、可能な限り現金でのお支払いにご協力ください。",
+  "本公演に関するお問い合わせは、公式サイトCONTACTの『チケット関連』よりご連絡ください。",
+];
+
+const PENDING = "後日、改めてご案内いたします";
+
+const escapeHtml = (s: string) =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+
+const safeUrl = (url: string): string | null => {
+  try {
+    const u = new URL(url.trim());
+    return u.protocol === "https:" || u.protocol === "http:" ? u.toString() : null;
+  } catch {
+    return null;
+  }
+};
+
+type Line = { label: string; value: string; href?: string | null };
+type Section = { heading: string; lines: Line[] } | { heading: string; notes: string[] };
+
+const render = (intro: string[], sections: Section[], outro: string[]) => {
+  const text: string[] = [...intro, ""];
+  const html: string[] = [`<div style="font-family:sans-serif;font-size:14px;line-height:1.7;color:#111">`];
+  html.push(...intro.map((p) => `<p style="margin:0 0 4px">${escapeHtml(p)}</p>`));
+  for (const s of sections) {
+    text.push(`■ ${s.heading}`);
+    html.push(`<h3 style="font-size:14px;margin:20px 0 6px">■ ${escapeHtml(s.heading)}</h3>`);
+    if ("lines" in s) {
+      for (const l of s.lines) {
+        // テキスト版は URL をそのまま出す（テキストのみのメールソフト向け）。HTML 版はリンクテキストにする
+        text.push(l.href ? `・${l.label}：${l.href}` : `・${l.label}：${l.value}`);
+        html.push(
+          l.href
+            ? `<div><a href="${escapeHtml(l.href)}">${escapeHtml(l.label)}</a></div>`
+            : `<div>${escapeHtml(l.label)}：${escapeHtml(l.value)}</div>`
+        );
+      }
+    } else {
+      for (const n of s.notes) {
+        text.push(`・${n}`);
+        html.push(`<div>・${escapeHtml(n)}</div>`);
+      }
+    }
+    text.push("");
+  }
+  text.push(...outro);
+  html.push(`<p style="margin:20px 0 0">${outro.map(escapeHtml).join("<br>")}</p></div>`);
+  return { text: text.join("\n"), html: html.join("\n") };
+};
+
+export const buildApplicantMail = (r: Reservation, venue: Venue): Mail => {
+  const address = venue.address.trim();
+  const accessUrl = safeUrl(venue.accessUrl);
+  const { text, html } = render(
+    [
+      `${r.name} 様`,
+      "",
+      `このたびは deddecay ${EVENT.shortLabel}のチケットをお申し込みいただき、誠にありがとうございます。`,
+      "以下の内容でお申し込みを受け付けました。",
+    ],
+    [
+      {
+        heading: "公演情報",
+        lines: [
+          { label: "公演タイトル", value: EVENT.title },
+          { label: "開催日", value: EVENT.dateLabel },
+          { label: "OPEN", value: EVENT.open },
+          { label: "START", value: EVENT.start },
+          { label: "チケット料金", value: EVENT.priceLabel },
+        ],
+      },
+      {
+        heading: "申し込み内容",
+        lines: [
+          { label: "お名前", value: r.name },
+          { label: "メールアドレス", value: r.email },
+          { label: "チケット枚数", value: `${r.tickets}枚` },
+          { label: "合計金額", value: formatYen(totalPrice(r.tickets)) },
+        ],
+      },
+      {
+        heading: "会場案内",
+        lines: [
+          { label: "会場住所", value: address || PENDING },
+          accessUrl
+            ? { label: "会場までの行き方", value: "", href: accessUrl }
+            : { label: "会場までの行き方", value: PENDING },
+        ],
+      },
+      { heading: "備考・注意事項", notes: PAYMENT_NOTES },
+    ],
+    ["当日お会いできるのを楽しみにしております。", "", "deddecay", "https://deddecay.tokyo"]
+  );
+  return { subject: APPLICANT_SUBJECT, text, html };
+};
+
+export const buildOperatorMail = (
+  r: Reservation,
+  summary: { reserved: number; remaining: number; capacity: number },
+  status: { applicantMailOk: boolean }
+): Mail => {
+  const lines = [
+    ...(status.applicantMailOk
+      ? []
+      : ["⚠ 申込者への自動返信の送信に失敗しました。会場案内を手動で送ってください。", ""]),
+    `お名前: ${r.name}`,
+    `メールアドレス: ${r.email}`,
+    `チケット枚数: ${r.tickets}枚`,
+    `合計金額: ${formatYen(totalPrice(r.tickets))}`,
+    `受付日時: ${new Date(r.createdAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}`,
+    `受付ID: ${r.id}`,
+    "",
+    `受付済み: ${summary.reserved} / ${summary.capacity}枚`,
+    `残席: ${summary.remaining}`,
+  ];
+  const text = lines.join("\n");
+  return {
+    subject: `[TICKET 12/6] ${r.name} 様 ${r.tickets}枚（残席 ${summary.remaining}）`,
+    text,
+    html: `<pre style="font-family:sans-serif;white-space:pre-wrap">${escapeHtml(text)}</pre>`,
+    replyTo: r.email,
+  };
+};
+
+// 送信元: TICKET_FROM_EMAIL があればそれ、無ければ CONTACT_FROM_EMAIL のアドレス部分に表示名 "deddecay"
+export const ticketFrom = (env: Record<string, string | undefined> = process.env): string => {
+  const explicit = env.TICKET_FROM_EMAIL?.trim();
+  if (explicit) return explicit;
+  const base = env.CONTACT_FROM_EMAIL?.trim();
+  if (!base) return "";
+  const address = /<([^<>]+)>\s*$/.exec(base)?.[1]?.trim() ?? base;
+  return `deddecay <${address}>`;
+};

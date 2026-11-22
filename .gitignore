@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# チケット台帳の書き出し（個人情報を含む）
+tickets-*.csv

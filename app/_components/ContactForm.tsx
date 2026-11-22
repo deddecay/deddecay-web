@@ -18,8 +18,9 @@ const inputBase =
 
 const labelBase = "text-[10px] tracking-widest text-white/65";
 
-export default function ContactForm() {
-  const [category, setCategory] = useState("");
+// initialCategory: 種別の初期値（`/?contact=ticket` から来たときの「チケット関連」など）。未指定なら従来どおり未選択
+export default function ContactForm({ initialCategory = "" }: { initialCategory?: string } = {}) {
+  const [category, setCategory] = useState(initialCategory);
   const [name, setName]         = useState("");
   const [email, setEmail]       = useState("");
   const [subject, setSubject]   = useState("");

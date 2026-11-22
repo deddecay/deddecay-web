@@ -4,6 +4,7 @@ import Image from "next/image";
 import NavMenu from "./_components/NavMenu";
 import { getTopNews, getTopLives, getBiography, getDiscography } from "@/src/lib/microcms";
 import { fanMomentsEnabled } from "@/src/lib/fan-upload/flags";
+import { ticketPublic } from "@/src/lib/ticket/flags";
 import {
   siApplemusic,
   siSpotify,
@@ -72,6 +73,7 @@ export default async function Home() {
           biography={biography}
           discographyItems={discographyItems}
           showFanMoments={fanMomentsEnabled()}
+          showTicketLink={ticketPublic()}
         />
 
       </div>

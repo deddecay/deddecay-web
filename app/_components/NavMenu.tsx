@@ -1,12 +1,13 @@
 "use client";
 
-import { Fragment, useState, useRef } from "react";
+import { Fragment, useEffect, useState, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import ContactForm from "./ContactForm";
 import { formatEntryDate, isNewEntry, resolveReleaseType, type Entry, type Biography, type DiscographyRelease } from "@/src/lib/microcms";
 import { BIOGRAPHY } from "@/src/data/biography";
+import { EVENT, TICKET_PATH } from "@/src/lib/ticket/event";
 
 // ── Types ────────────────────────────────────────────
 
@@ -28,9 +29,9 @@ const labelStyle =
 const andMoreStyle =
   "text-[10px] tracking-[0.25em] text-white/55 hover:text-white/85 active:text-white/65 transition-colors duration-150";
 
-// contact パネルは他より高さが必要
-const panelMaxH = (section: Section) =>
-  section === "contact" ? "max-h-[520px]" : "max-h-80 sm:max-h-96";
+// contact パネルは他より高さが必要（チケット申し込みリンクを出すときはその 1 行分を足す）
+const panelMaxH = (section: Section, withTicketLink = false) =>
+  section === "contact" ? (withTicketLink ? "max-h-[560px]" : "max-h-[520px]") : "max-h-80 sm:max-h-96";
 
 // ── Types ────────────────────────────────────────────
 
@@ -41,6 +42,8 @@ type Props = {
   discographyItems: DiscographyRelease[];
   // Fan moments への導線を表示するか（公開前は false）
   showFanMoments?: boolean;
+  // 12/6 フロアライブ チケット申し込みへの導線を CONTACT 内に表示するか（公開前は false）
+  showTicketLink?: boolean;
 };
 
 // ── Helpers ───────────────────────────────────────────
@@ -57,8 +60,10 @@ const matchesDiscoTab = (item: DiscographyRelease, tab: DiscoTab) => {
 
 // ── Component ────────────────────────────────────────
 
-export default function NavMenu({ newsItems, liveItems, biography, discographyItems, showFanMoments = false }: Props) {
+export default function NavMenu({ newsItems, liveItems, biography, discographyItems, showFanMoments = false, showTicketLink = false }: Props) {
   const [open, setOpen] = useState<Section | null>(null);
+  // `/?contact=ticket` で来たら CONTACT を開き、種別「チケット関連」を選択済みにする
+  const [contactPreset, setContactPreset] = useState<string | undefined>(undefined);
   // ALBUM / EP が0件のうちは SINGLE から開始する
   const [discoTab, setDiscoTab] = useState<DiscoTab>(() =>
     discographyItems.some((item) => matchesDiscoTab(item, "albumEp")) ? "albumEp" : "single"
@@ -91,6 +96,16 @@ export default function NavMenu({ newsItems, liveItems, biography, discographyIt
       scrollTo(section);
     }
   };
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("contact") !== "ticket") return;
+    const timer = setTimeout(() => {
+      setContactPreset("TICKET");
+      setOpen("contact");
+      scrollTo("contact");
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
 
   const renderContent = (section: Section): ReactNode => {
     switch (section) {
@@ -267,7 +282,19 @@ export default function NavMenu({ newsItems, liveItems, biography, discographyIt
       }
 
       case "contact":
-        return <ContactForm />;
+        return (
+          <>
+            {/* 12/6 フロアライブ チケット申し込み — 通常の問い合わせ種別とは独立した導線（公開前は非表示） */}
+            {showTicketLink && (
+              <div className="mt-5 flex justify-center">
+                <Link href={TICKET_PATH} className={andMoreStyle}>
+                  {EVENT.shortLabel} チケット申し込み
+                </Link>
+              </div>
+            )}
+            <ContactForm key={contactPreset ?? "default"} initialCategory={contactPreset} />
+          </>
+        );
     }
   };
 
@@ -298,7 +325,7 @@ export default function NavMenu({ newsItems, liveItems, biography, discographyIt
         <div
           className={`w-full overflow-hidden transition-all ease-out
             ${isOpen
-              ? `${panelMaxH(section)} opacity-100 duration-300 delay-150`
+              ? `${panelMaxH(section, showTicketLink)} opacity-100 duration-300 delay-150`
               : "max-h-0 opacity-0 duration-150 delay-0"
             }`}
         >
