@@ -34,12 +34,21 @@ export default async function TicketPage() {
   if (!ticketEnabled()) notFound();
   const remaining = await readRemaining();
 
-  const rows = [
+  const rows: { label: string; value: string; note?: string }[] = [
     { label: "公演タイトル", value: EVENT.title },
     { label: "開催日", value: EVENT.dateLabel },
     { label: "OPEN / START", value: `${EVENT.open} / ${EVENT.start}` },
-    { label: "開催場所", value: EVENT.publicArea },
-    { label: "チケット料金", value: `${EVENT.priceLabel}・${EVENT.payment}` },
+    {
+      label: "会場",
+      value: EVENT.publicArea,
+      note: "※会場の詳細およびアクセス方法は、お申し込み完了後の自動返信メールにてご案内いたします。",
+    },
+    { label: "チケット料金", value: EVENT.pagePriceLabel },
+    {
+      label: "お支払い",
+      value: EVENT.payment,
+      note: "※現金でのお支払いを基本とし、クレジットカード・PayPayもご利用いただけます。ご協力をお願いいたします。",
+    },
   ];
 
   return (
@@ -55,10 +64,11 @@ export default async function TicketPage() {
         <header className="flex flex-col gap-4">
           <h1 className="text-sm tracking-[0.15em] text-white/90">{EVENT.shortLabel} チケット申し込み</h1>
           <dl className="flex flex-col gap-2.5">
-            {rows.map(({ label, value }) => (
+            {rows.map(({ label, value, note }) => (
               <div key={label} className="flex flex-col gap-0.5">
                 <dt className="text-[10px] tracking-widest text-white/50">{label}</dt>
                 <dd className="text-xs text-white/80">{value}</dd>
+                {note && <dd className="text-[10px] leading-relaxed text-white/50">{note}</dd>}
               </div>
             ))}
           </dl>

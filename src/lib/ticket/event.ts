@@ -1,19 +1,21 @@
 // 2026-12-06 フロアライブの公演情報（公開してよい情報だけを置く）。
 // 正確な会場住所・アクセス動画 URL はここに書かない（サーバー専用の環境変数。mail.ts / runtime.ts を参照）。
 //
-// 後日設定：title / open / start が決まったらここを書き換える。
+// title は仮タイトル（確定したら書き換える）。publicArea は公開してよい会場表記で、正確な住所は書かない。
 
 export const EVENT = {
   id: "2026-12-06",
   dateLabel: "2026年12月6日（日）",
   shortLabel: "12月6日 フロアライブ",
-  title: "後日設定",
-  open: "後日設定",
-  start: "後日設定",
-  publicArea: "東京都世田谷区・梅ヶ丘駅周辺",
+  title: "手作りフロアライブ -終わったなお前編-",
+  open: "18:00",
+  start: "18:30",
+  publicArea: "東京都世田谷区某所（小田急線沿線）",
   pricePerTicket: 2000,
+  // 自動返信メール用（「／名」付き）と申し込みページ用
   priceLabel: "2,000円／名（ドリンク込み）",
-  payment: "当日現地払い",
+  pagePriceLabel: "2,000円（ドリンク込み）",
+  payment: "当日会場払い",
   capacity: 50,
   maxPerOrder: 5,
 } as const;

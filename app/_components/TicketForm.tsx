@@ -209,7 +209,7 @@ export default function TicketForm({ maxTickets: initialMax }: { maxTickets: num
 
       <p className="text-[11px] text-white/65">
         合計金額：{tickets > 0 ? formatYen(totalPrice(tickets)) : "—"}
-        <span className="text-white/40">（{formatYen(EVENT.pricePerTicket)} × 枚数・当日現地払い）</span>
+        <span className="text-white/40">（{formatYen(EVENT.pricePerTicket)} × 枚数・{EVENT.payment}）</span>
       </p>
 
       {/* honeypot: hidden from users, filled by bots */}
