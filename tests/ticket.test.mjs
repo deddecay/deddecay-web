@@ -150,6 +150,99 @@ test("reserve: 競合が続けば conflict を返す（無限に回らない）"
   assert.equal(r.status, "conflict");
 });
 
+// ── sheet（集計表） ───────────────────────────────────
+
+import { syncSheet, sheetKeyFor, sheetNameFor, sheetCsv } from "../src/lib/ticket/sheet.ts";
+
+const fakeDrive = () => {
+  const files = new Map(); // id -> { csv, key, createdTime }
+  let n = 0;
+  const calls = [];
+  return {
+    files,
+    calls,
+    async findSpreadsheets(key) {
+      return [...files].filter(([, f]) => f.key === key).map(([id, f]) => ({ id, createdTime: f.createdTime }));
+    },
+    async createSpreadsheetFromCsv(name, csv, key) {
+      const id = `s${++n}`;
+      files.set(id, { csv, key, name, createdTime: `2026-11-22T00:00:0${n}Z` });
+      calls.push(["create", id]);
+      return id;
+    },
+    async replaceSpreadsheetCsv(id, csv) {
+      files.get(id).csv = csv;
+      calls.push(["replace", id]);
+    },
+    async trash(id) {
+      files.delete(id);
+      calls.push(["trash", id]);
+    },
+  };
+};
+
+const SHEET_OPTS = { sheetKey: sheetKeyFor("2026-12-06", "preview"), sheetName: "x", pricePerTicket: 2000 };
+
+test("sheet: 初回は作成、2 回目以降は同じ表を書き直す（キャンセルも反映）", async () => {
+  const store = createMemoryStore();
+  const drive = fakeDrive();
+  const a = await reserve(store, app(1, 2), OPTS);
+  const first = await syncSheet(drive, store, SHEET_OPTS);
+  assert.equal(drive.files.size, 1);
+  assert.equal(first.rows, 1);
+  await reserve(store, app(2, 3), OPTS);
+  const second = await syncSheet(drive, store, SHEET_OPTS);
+  assert.equal(second.id, first.id);
+  assert.equal(drive.files.size, 1);
+  assert.equal(drive.files.get(first.id).csv.trim().split("\r\n").length, 3);
+  await cancelReservation(store, a.reservation.id);
+  await syncSheet(drive, store, SHEET_OPTS);
+  const csv = drive.files.get(first.id).csv;
+  assert.ok(!csv.includes("user1@example.com"));
+  assert.ok(csv.includes("user2@example.com"));
+  assert.ok(!csv.startsWith("﻿"));
+});
+
+test("sheet: 同時の初回反映で 2 つできたら古い方だけ残す", async () => {
+  const store = createMemoryStore();
+  const drive = fakeDrive();
+  await reserve(store, app(1, 1), OPTS);
+  const [x, y] = await Promise.all([syncSheet(drive, store, SHEET_OPTS), syncSheet(drive, store, SHEET_OPTS)]);
+  assert.equal(drive.files.size, 1);
+  assert.equal(x.id, y.id);
+  assert.equal(x.id, "s1");
+});
+
+test("sheet: 反映中に台帳が変わったら読み直して書き直す", async () => {
+  const store = createMemoryStore();
+  const drive = fakeDrive();
+  await reserve(store, app(1, 1), OPTS);
+  let injected = false;
+  const racing = {
+    ...drive,
+    async replaceSpreadsheetCsv(id, csv) {
+      await drive.replaceSpreadsheetCsv(id, csv);
+      if (!injected) { injected = true; await reserve(store, app(2, 1), OPTS); }
+    },
+    async createSpreadsheetFromCsv(name, csv, key) {
+      const id = await drive.createSpreadsheetFromCsv(name, csv, key);
+      if (!injected) { injected = true; await reserve(store, app(2, 1), OPTS); }
+      return id;
+    },
+  };
+  const r = await syncSheet(racing, store, SHEET_OPTS);
+  assert.equal(r.rows, 2);
+  assert.ok(drive.files.get(r.id).csv.includes("user2@example.com"));
+});
+
+test("sheet: 環境ごとに別の表・名前", () => {
+  assert.equal(sheetKeyFor("2026-12-06", "production"), "ticket:2026-12-06:production");
+  assert.notEqual(sheetKeyFor("2026-12-06", "preview"), sheetKeyFor("2026-12-06", "production"));
+  assert.ok(!sheetNameFor("12/6", "production").includes("（"));
+  assert.ok(sheetNameFor("12/6", "preview").includes("（preview）"));
+  assert.equal(sheetCsv({ version: 1, reservations: [] }, 2000).split("\r\n")[0], "受付日時,お名前,メールアドレス,枚数,合計金額,受付ID");
+});
+
 // ── mail ──────────────────────────────────────────────
 
 const reservation = {

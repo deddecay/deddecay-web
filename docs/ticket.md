@@ -1,7 +1,7 @@
 # 12/6 フロアライブ チケット申し込み（2026-12-06）
 
-> 実装：2026-11-22。**本番は非公開**（`TICKET_1206_ENABLED` 未設定のため、URL を知っていても 404）。
-> 公開はユーザーの明示的な指示があるまで行わない。
+> 実装：2026-11-22。2026-11-22 にユーザーの指示で **本番の受付を開始（URL 直接のみ・サイト上のリンクなし）**。
+> `TICKET_1206_ENABLED=1` は設定済み、`TICKET_1206_PUBLIC` は未設定。サイト上のリンク公開はユーザーの明示的な指示があるまで行わない。
 
 ## 概要
 
@@ -21,7 +21,7 @@
 
 | 環境変数 | 効果 | 本番の現状 |
 |---|---|---|
-| `TICKET_1206_ENABLED=1` | フォームと API を有効にする。未設定なら両方 404 | **未設定**（非公開） |
+| `TICKET_1206_ENABLED=1` | フォームと API を有効にする。未設定なら両方 404 | **設定済み**（2026-11-22〜。URL 直接で受付中） |
 | `TICKET_1206_PUBLIC=1` | TOP の CONTACT 展開内・LIVE 詳細に申し込みリンクを出す（ENABLED も必要） | **未設定** |
 | `TICKET_1206_LIVE_ID` | リンクを出す LIVE 詳細の microCMS contentId | 未設定（記事作成後に設定） |
 
@@ -37,7 +37,15 @@
 |---|---|
 | `TICKET_1206_VENUE_ADDRESS` | 正確な会場住所（未設定ならメールでは「後日、改めてご案内いたします」） |
 | `TICKET_1206_ACCESS_URL` | 会場までの行き方（Dropbox 共有動画の URL）。HTML メールでは「会場までの行き方」のリンクテキストで表示 |
-| `TICKET_FROM_EMAIL` | 任意。送信元。未設定なら `CONTACT_FROM_EMAIL` のアドレスに表示名 `deddecay` |
+| `TICKET_FROM_EMAIL` | 送信元。**公開前に必ず `deddecay <ticket@deddecay.tokyo>` を設定する**。未設定なら `CONTACT_FROM_EMAIL` のアドレスに表示名 `deddecay` |
+
+### 送信ドメイン（Resend）
+
+- `CONTACT_FROM_EMAIL` は Resend のテスト用アドレス（resend.dev）で、アカウント所有者（deddecay@gmail.com）宛てにしか送れない。申込者宛ての自動返信には使えない
+- 2026-11-22 に Resend へ `deddecay.tokyo`（Tokyo リージョン・クリック/開封計測オフ）を追加し、Vercel DNS に次を登録：
+  `resend._domainkey` TXT（DKIM）／`rsend` CNAME `rsend-apne1.forge.rmta.net`／`send` CNAME `send.forge.rmta.net`／`_dmarc` TXT `v=DMARC1; p=none;`
+- deddecay.tokyo の DNS は **Vercel DNS**（ネームサーバー `ns1/ns2.vercel-dns.com`）。`vercel dns ls deddecay.tokyo --scope deddecay-5043s-projects` で確認できる
+- deddecay.tokyo はメールを受信しないため、自動返信の Reply-To は `CONTACT_TO_EMAIL`（運営の受信先）にしている
 
 Dropbox の共有設定（2026-11-22 確認）：ログインなしで再生できる（リンクを知っている全員が閲覧可）。
 ダウンロードボタンが表示されており、共有者名（_info deddecay）も表示される。
@@ -53,6 +61,16 @@ Dropbox の共有設定（2026-11-22 確認）：ログインなしで再生で�
 - そのほか：IP ごとに 1 時間 10 回まで・honeypot・別オリジンからの送信拒否
 - Resend の送信数制限（毎秒 10 件）に当たったら、間隔をあけて最大 5 回まで送り直す
 - 自動返信が失敗しても受付は有効。運営通知に「自動返信の送信に失敗」と出るので、手動で案内する
+
+## 集計表（Google スプレッドシート）
+
+- 申し込みのたびに、応答を返したあとで（`after()`）受付一覧の全件をスプレッドシートに書き直す。キャンセル（`scripts/tickets.mjs cancel --yes`）でも書き直す
+- 正本は R2 の台帳。表は写しなので、**表に直接書いたメモ・色は次の反映で消える**（メモは別シートで参照する）
+- Fan moments の Google 連携（`GOOGLE_OAUTH_*`、権限 `drive.file`）を使う。表はそのアカウントの Google ドライブに
+  「deddecay 12月6日 フロアライブ 申し込み一覧」（Preview・ローカルは名前に（preview）などが付く）で作られる
+- 表は `appProperties.sheet = ticket:2026-12-06:{production|preview|local}` で見分ける。同時の初回反映で 2 つできたら新しい方をゴミ箱へ
+- 反映に失敗しても受付・自動返信には影響しない（ログ `[ticket] 集計表の反映に失敗しました`）。`scripts/tickets.mjs sheet` で手動反映でき、URL も表示される
+- Google 連携のトークンが失効すると反映が止まる（[fan-upload.md](fan-upload.md) のトークン更新手順を参照）
 
 ## 運用（一覧・スプレッドシート・キャンセル）
 
@@ -75,7 +93,7 @@ rm /tmp/dd-prod.env
 ## 公開前チェックリスト
 
 1. `event.ts` の公演タイトル・OPEN・START を設定
-2. 本番に `TICKET_1206_VENUE_ADDRESS`・`TICKET_1206_ACCESS_URL` を設定
+2. 本番に `TICKET_1206_VENUE_ADDRESS`・`TICKET_1206_ACCESS_URL`・`TICKET_FROM_EMAIL` を設定（Resend で deddecay.tokyo が Verified になっていること）
 3. LIVE 記事を作成し、contentId を `TICKET_1206_LIVE_ID` に設定
 4. Preview で自分宛てに申し込み、自動返信の表示（リンク・住所）を確認 → `cancel --stage preview` で片付け
 5. ユーザーの指示を受けてから、本番に `TICKET_1206_ENABLED=1`・`TICKET_1206_PUBLIC=1` を設定して再デプロイ

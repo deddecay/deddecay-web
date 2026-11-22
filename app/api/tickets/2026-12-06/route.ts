@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { ticketEnabled } from "@/src/lib/ticket/flags";
 import { EVENT } from "@/src/lib/ticket/event";
 import { parseApplication, reserve } from "@/src/lib/ticket/ledger";
 import { buildApplicantMail, buildOperatorMail } from "@/src/lib/ticket/mail";
-import { getLedgerStore, readVenue, sendMail } from "@/src/lib/ticket/runtime";
+import { getLedgerStore, readVenue, sendMail, syncSheetSafely } from "@/src/lib/ticket/runtime";
 import { clientIp, consume } from "@/src/lib/fan-upload/ratelimit";
 
 export const dynamic = "force-dynamic";
@@ -75,12 +75,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, tickets: result.reservation.tickets });
     case "accepted": {
       const { reservation, reserved, remaining } = result;
-      const applicantMailOk = await sendMail(reservation.email, buildApplicantMail(reservation, readVenue()));
       const to = process.env.CONTACT_TO_EMAIL;
+      // 送信元ドメイン（deddecay.tokyo）はメールを受信しないので、自動返信への返信は運営の受信先へ向ける
+      const applicantMail = { ...buildApplicantMail(reservation, readVenue()), ...(to ? { replyTo: to } : {}) };
+      const applicantMailOk = await sendMail(reservation.email, applicantMail);
       const operatorMail = buildOperatorMail(reservation, { reserved, remaining, capacity: EVENT.capacity }, { applicantMailOk });
       if (!to || !(await sendMail(to, operatorMail))) {
         console.error(`[ticket] 運営通知の送信に失敗しました (reservation ${reservation.id})`);
       }
+      // 集計表への反映は応答のあとで行う（申込者を待たせない・失敗しても受付には影響しない）
+      after(() => syncSheetSafely(store));
       return NextResponse.json({ ok: true, tickets: reservation.tickets, mailSent: applicantMailOk });
     }
   }

@@ -4,6 +4,7 @@
 // appProperties の role=fanroot で見つける。フォルダ・ファイルは共有設定を一切変更しない（非公開のまま）。
 
 const FOLDER_MIME = "application/vnd.google-apps.folder";
+const SHEET_MIME = "application/vnd.google-apps.spreadsheet";
 const API = "https://www.googleapis.com/drive/v3";
 const UPLOAD_API = "https://www.googleapis.com/upload/drive/v3";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -434,6 +435,41 @@ export class DriveClient {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ appProperties: { notified: "1" } }),
+    });
+  }
+
+  // ── チケット集計表（Google スプレッドシート。src/lib/ticket/sheet.ts から使う）──
+  // drive.file の範囲で、このアプリが作ったスプレッドシートだけを扱う。appProperties.sheet で見分ける
+
+  async findSpreadsheets(sheetKey: string): Promise<{ id: string; createdTime: string }[]> {
+    const rows = await this.listAll(
+      `mimeType='${SHEET_MIME}' and trashed=false and appProperties has { key='sheet' and value='${sheetKey}' }`,
+      "id,createdTime"
+    );
+    return rows.map((r) => ({ id: String(r.id), createdTime: String(r.createdTime ?? "") }));
+  }
+
+  // CSV を取り込んで新しいスプレッドシートを作る
+  async createSpreadsheetFromCsv(name: string, csv: string, sheetKey: string): Promise<string> {
+    const boundary = `ddticket${this.now()}`;
+    const metadata = { name, mimeType: SHEET_MIME, appProperties: { app: "ticket", sheet: sheetKey } };
+    const body =
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
+      `--${boundary}\r\nContent-Type: text/csv; charset=UTF-8\r\n\r\n${csv}\r\n--${boundary}--`;
+    const created = await this.json<{ id: string }>(`${UPLOAD_API}/files?uploadType=multipart&fields=id`, {
+      method: "POST",
+      headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
+      body,
+    });
+    return created.id;
+  }
+
+  // 既存のスプレッドシートの中身を CSV で丸ごと置き換える
+  async replaceSpreadsheetCsv(fileId: string, csv: string): Promise<void> {
+    await this.request(`${UPLOAD_API}/files/${encodeURIComponent(fileId)}?uploadType=media&fields=id`, {
+      method: "PATCH",
+      headers: { "Content-Type": "text/csv; charset=UTF-8" },
+      body: csv,
     });
   }
 

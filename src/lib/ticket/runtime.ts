@@ -14,6 +14,8 @@ import { getR2Client, R2Error, type R2Client } from "../fan-upload/r2";
 import { EVENT } from "./event";
 import { createMemoryStore, emptyLedger, ledgerKeyFor, parseLedger, type LedgerStore } from "./ledger";
 import { ticketFrom, type Mail, type Venue } from "./mail";
+import { getDriveClient } from "../fan-upload/drive";
+import { sheetKeyFor, sheetNameFor, syncSheet } from "./sheet";
 
 const ledgerKey = (): string => ledgerKeyFor(EVENT.id, process.env.VERCEL_ENV);
 
@@ -49,6 +51,23 @@ export const getLedgerStore = (): LedgerStore | null => {
   }
   const client = getR2Client();
   return client ? r2Store(client, ledgerKey()) : null;
+};
+
+// 集計表（Google スプレッドシート）へ反映する。Google 連携（GOOGLE_OAUTH_*）が無い環境では何もしない。
+// 失敗しても受付には影響させない（ログだけ残し、次の申し込みか scripts/tickets.mjs sheet で追いつく）
+export const syncSheetSafely = async (store: LedgerStore): Promise<void> => {
+  const drive = getDriveClient();
+  if (!drive) return;
+  const stage = process.env.VERCEL_ENV;
+  try {
+    await syncSheet(drive, store, {
+      sheetKey: sheetKeyFor(EVENT.id, stage),
+      sheetName: sheetNameFor(EVENT.shortLabel, stage),
+      pricePerTicket: EVENT.pricePerTicket,
+    });
+  } catch (err) {
+    console.error("[ticket] 集計表の反映に失敗しました:", err instanceof Error ? err.message : err);
+  }
 };
 
 export const readVenue = (): Venue => ({

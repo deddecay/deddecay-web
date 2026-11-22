@@ -19,7 +19,7 @@
 | フォント | Geist Sans / Geist Mono |
 | ホスティング | Vercel |
 | 本番 URL | https://deddecay.tokyo |
-| ドメイン管理 | Cloudflare（DNS のみ、SSL は Vercel） |
+| ドメイン管理 | 登録はお名前.com、DNS は Vercel DNS（ns1/ns2.vercel-dns.com。2026-11-22 確認）。送信用レコード（Resend）は [ticket.md](ticket.md) 参照 |
 
 ### キャッシュ戦略
 

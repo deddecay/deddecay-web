@@ -11,7 +11,8 @@
 //   node scripts/tickets.mjs list                       受付一覧と合計・残席
 //   node scripts/tickets.mjs csv [出力ファイル]          CSV（Excel / Google スプレッドシートで開ける。既定: tickets-2026-12-06.csv）
 //   node scripts/tickets.mjs cancel <受付ID>            取り消す内容を表示するだけ（変更しない）
-//   node scripts/tickets.mjs cancel <受付ID> --yes      取り消して席を戻す
+//   node scripts/tickets.mjs cancel <受付ID> --yes      取り消して席を戻す（集計表も更新）
+//   node scripts/tickets.mjs sheet                      集計表（Google スプレッドシート）を台帳の内容で更新し、URL を表示
 // オプション:
 //   --stage production|preview|local   対象の台帳（既定 production）
 //
@@ -21,6 +22,8 @@ import { writeFileSync } from "node:fs";
 import { R2Client, R2Error, loadR2Config } from "../src/lib/fan-upload/r2.ts";
 import { cancelReservation, emptyLedger, ledgerKeyFor, parseLedger, summarize, toCsv } from "../src/lib/ticket/ledger.ts";
 import { EVENT } from "../src/lib/ticket/event.ts";
+import { DriveClient, loadDriveConfig } from "../src/lib/fan-upload/drive.ts";
+import { sheetKeyFor, sheetNameFor, sheetUrl, syncSheet } from "../src/lib/ticket/sheet.ts";
 
 const args = process.argv.slice(2);
 const stageIndex = args.indexOf("--stage");
@@ -50,6 +53,21 @@ const store = {
       throw err;
     }
   },
+};
+
+// 集計表（Google スプレッドシート）へ反映する。GOOGLE_OAUTH_* が無ければ何もしない
+const syncToSheet = async () => {
+  const driveConfig = loadDriveConfig();
+  if (!driveConfig) {
+    console.log("（GOOGLE_OAUTH_* が未設定のため、集計表は更新していません）");
+    return;
+  }
+  const r = await syncSheet(new DriveClient(driveConfig), store, {
+    sheetKey: sheetKeyFor(EVENT.id, stage),
+    sheetName: sheetNameFor(EVENT.shortLabel, stage),
+    pricePerTicket: EVENT.pricePerTicket,
+  });
+  console.log(`集計表を更新しました（${r.rows}件）: ${sheetUrl(r.id)}`);
 };
 
 const jst = (iso) => new Date(iso).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
@@ -94,9 +112,14 @@ switch (command) {
     }
     const after = summarize((await store.read()).ledger, EVENT.capacity);
     console.log(`取り消しました。残席 ${after.remaining}（申込者への連絡は別途行ってください）`);
+    await syncToSheet();
+    break;
+  }
+  case "sheet": {
+    await syncToSheet();
     break;
   }
   default:
-    console.error("使い方: node scripts/tickets.mjs list | csv [file] | cancel <受付ID> [--yes]  [--stage production|preview|local]");
+    console.error("使い方: node scripts/tickets.mjs list | csv [file] | sheet | cancel <受付ID> [--yes]  [--stage production|preview|local]");
     process.exit(1);
 }
