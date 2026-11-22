@@ -74,10 +74,15 @@ Dropbox の共有設定（2026-11-22 確認）：ログインなしで再生で�
 
 ## 運用（一覧・スプレッドシート・キャンセル）
 
-`scripts/tickets.mjs` を使う。R2 の認証情報は Vercel から一時ファイルに取り出し、終わったら消す。
+`scripts/tickets.mjs` を使う。R2（と集計表を更新するなら `GOOGLE_OAUTH_*`）の認証情報を環境変数で渡す。
+
+> ⚠ `vercel env pull` では取り出せない（2026-11-22 確認）。R2・Google の値は Vercel で「Sensitive」扱いのため、空で取り出される。
+> R2 の運用用 API トークン（対象バケットのみ・Object Read & Write）を Cloudflare で別に発行し、リポジトリの外のファイル（権限 600）に置いて使う。
+
+**人数のリセット（本番の受付開始前など）**：Cloudflare ダッシュボード → R2 → 該当バケット → `tickets/2026-12-06/ledger.json` を削除すると 0 件に戻る。
+集計表は次の申し込み（または `sheet`）で書き直される。
 
 ```bash
-vercel env pull /tmp/dd-prod.env --environment=production
 node --env-file=/tmp/dd-prod.env scripts/tickets.mjs list
 node --env-file=/tmp/dd-prod.env scripts/tickets.mjs csv
 node --env-file=/tmp/dd-prod.env scripts/tickets.mjs cancel <受付ID>

@@ -2,10 +2,8 @@
 // 12/6 フロアライブ チケット台帳の運用ツール（ローカルで手動実行する）。
 //
 // R2 の認証情報（R2_ACCOUNT_ID / R2_BUCKET / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY）を環境変数で渡す。
-// 例: Vercel から本番の値を一時ファイルに取り出して使い、終わったら消す
-//   vercel env pull /tmp/dd-prod.env --environment=production
+// 注意: vercel env pull では R2・Google の値は取り出せない（Sensitive のため空になる）。docs/ticket.md の「運用」を参照
 //   node --env-file=/tmp/dd-prod.env scripts/tickets.mjs list
-//   rm /tmp/dd-prod.env
 //
 // 使い方:
 //   node scripts/tickets.mjs list                       受付一覧と合計・残席
