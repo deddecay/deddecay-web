@@ -12,7 +12,7 @@ import {
   ledgerKeyFor,
 } from "../src/lib/ticket/ledger.ts";
 import { ticketEnabled, ticketPublic, ticketLiveId } from "../src/lib/ticket/flags.ts";
-import { buildApplicantMail, buildOperatorMail, ticketFrom } from "../src/lib/ticket/mail.ts";
+import { buildApplicantMail, buildOperatorMail, ticketFrom, parseSteps } from "../src/lib/ticket/mail.ts";
 import { EVENT, totalPrice, formatYen } from "../src/lib/ticket/event.ts";
 
 const OPTS = { capacity: 50, maxPerOrder: 5, now: () => new Date("2026-11-22T00:00:00Z") };
@@ -259,17 +259,60 @@ test("mail: 自動返信は件名・順序・金額・会場・注意事項を�
   const mail = buildApplicantMail(reservation, venue);
   assert.equal(mail.subject, "【deddecay】12月6日 フロアライブ チケット申し込み受付完了");
   const t = mail.text;
-  const order = ["公演情報", "2026年12月6日（日）", "2,000円／名（ドリンク込み）", "申し込み内容", "山田 <太郎>", "2枚", "4,000円", "会場案内", "東京都世田谷区テスト1-2-3", "会場までの行き方", "備考・注意事項", "チケット料金は当日、会場にてお支払いください。", "現金", "チケット関連"];
+  const order = ["公演情報", "2026年12月6日（日）", "2,000円／名（ドリンク込み）", "申し込み内容", "山田 <太郎>", "2枚", "4,000円", "会場案内", "東京都世田谷区テスト1-2-3", "会場への行き方（動画あり）", "備考・注意事項", "チケット料金は当日、会場にてお支払いください。", "現金", "チケット関連", "ビル前でのたむろ"];
   let pos = -1;
   for (const s of order) {
     const at = t.indexOf(s, pos + 1);
     assert.ok(at > pos, `順序: ${s}`);
     pos = at;
   }
-  // HTML 版: URL はリンクテキスト「会場までの行き方」として出し、名前はエスケープする
-  assert.match(mail.html, /<a href="https:\/\/www\.dropbox\.com\/scl\/fi\/abc\/video\.mp4\?rlkey=xyz&amp;dl=0">会場までの行き方<\/a>/);
+  // HTML 版: URL はリンクテキスト「会場への行き方（動画あり）」として出し、名前はエスケープする
+  assert.match(mail.html, /<a href="https:\/\/www\.dropbox\.com\/scl\/fi\/abc\/video\.mp4\?rlkey=xyz&amp;dl=0">会場への行き方（動画あり）<\/a>/);
+  assert.ok(!mail.html.replace(/href="[^"]*"/g, "").includes("dropbox.com"), "URL を本文に表示しない");
   assert.ok(mail.html.includes("山田 &lt;太郎&gt;"));
   assert.ok(!mail.html.includes("<太郎>"));
+});
+
+test("mail: 行き方のリンク直下に番号付きの道順を出す（番号は付け直す）", () => {
+  const steps = ["1. 駅の南口を出て右へ", "道路に出たら<左折>", "", "  3. 4階までお越しください  "];
+  const mail = buildApplicantMail(reservation, { address: "x", accessUrl: "https://www.dropbox.com/v", steps });
+  // HTML: リンクのすぐ後に <ol>、元の番号は外して付け直す・エスケープする
+  assert.match(mail.html, /会場への行き方（動画あり）<\/a><\/div>\s*<ol[^>]*>\s*<li>駅の南口を出て右へ<\/li>\s*<li>道路に出たら&lt;左折&gt;<\/li>\s*<li>4階までお越しください<\/li>\s*<\/ol>/);
+  // テキスト: 1. 2. 3. と番号を振り直す
+  const t = mail.text;
+  const a = t.indexOf("会場への行き方（動画あり）");
+  assert.ok(a >= 0 && a < t.indexOf("1. 駅の南口を出て右へ"));
+  assert.ok(t.indexOf("1. 駅の南口を出て右へ") < t.indexOf("2. 道路に出たら<左折>"));
+  assert.ok(t.indexOf("2. 道路に出たら<左折>") < t.indexOf("3. 4階までお越しください"));
+  assert.ok(t.indexOf("3. 4階までお越しください") < t.indexOf("備考・注意事項"));
+});
+
+test("mail: 道順が無ければ一覧を出さない", () => {
+  const mail = buildApplicantMail(reservation, { address: "x", accessUrl: "https://www.dropbox.com/v" });
+  assert.ok(!mail.html.includes("<ol"));
+});
+
+test("mail: 注意事項は既存の文言を残して、たむろ・滞留の注意を最後に追加", () => {
+  const mail = buildApplicantMail(reservation, { address: "x", accessUrl: "" });
+  const t = mail.text;
+  const notes = [
+    "チケット料金は当日、会場にてお支払いください。",
+    "お支払いは原則として現金でお願いいたします。",
+    "本公演に関するお問い合わせは、公式サイトCONTACTの『チケット関連』よりご連絡ください。",
+    "当日は他のスタジオ利用者様もいらっしゃいますので、ビル前でのたむろや長時間の滞留はご遠慮ください。皆様のご理解とご協力をお願いいたします。",
+  ];
+  let pos = t.indexOf("備考・注意事項");
+  for (const n of notes) {
+    const at = t.indexOf(n, pos + 1);
+    assert.ok(at > pos, `注意事項: ${n.slice(0, 12)}`);
+    pos = at;
+  }
+});
+
+test("readSteps: 環境変数の改行区切りを道順にする（空行・前後空白・元の番号を除く）", () => {
+  assert.deepEqual(parseSteps("1. A\r\n\n2.  B \n3、C\n（4）D\nE"), ["A", "B", "C", "D", "E"]);
+  assert.deepEqual(parseSteps(""), []);
+  assert.deepEqual(parseSteps(undefined), []);
 });
 
 test("mail: 会場情報が未設定なら『後日ご案内』とし、リンクを出さない", () => {

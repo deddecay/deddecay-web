@@ -4,7 +4,15 @@
 import { EVENT, formatYen, totalPrice } from "./event.ts";
 import type { Reservation } from "./ledger.ts";
 
-export type Venue = { address: string; accessUrl: string };
+// steps: 会場までの道順（番号なしの文の並び）。会場が特定できる内容なので、コードには書かず環境変数から読む
+export type Venue = { address: string; accessUrl: string; steps?: string[] };
+
+// 環境変数（改行区切り）を道順にする。空行・前後の空白・行頭の番号（「1.」「2、」「（3）」など）は外す
+export const parseSteps = (raw: string | undefined): string[] =>
+  (raw ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim().replace(/^(?:\d+\s*[.、．)）]|[（(]\d+[)）])\s*/, "").trim())
+    .filter((line) => line !== "");
 
 export type Mail = { subject: string; text: string; html: string; replyTo?: string };
 
@@ -14,7 +22,10 @@ const PAYMENT_NOTES = [
   "チケット料金は当日、会場にてお支払いください。",
   "お支払いは原則として現金でお願いいたします。クレジットカード・PayPayもご利用いただけますが、可能な限り現金でのお支払いにご協力ください。",
   "本公演に関するお問い合わせは、公式サイトCONTACTの『チケット関連』よりご連絡ください。",
+  "当日は他のスタジオ利用者様もいらっしゃいますので、ビル前でのたむろや長時間の滞留はご遠慮ください。皆様のご理解とご協力をお願いいたします。",
 ];
+
+const ACCESS_LABEL = "会場への行き方（動画あり）";
 
 const PENDING = "後日、改めてご案内いたします";
 
@@ -30,7 +41,7 @@ const safeUrl = (url: string): string | null => {
   }
 };
 
-type Line = { label: string; value: string; href?: string | null };
+type Line = { label: string; value: string; href?: string | null; steps?: string[] };
 type Section = { heading: string; lines: Line[] } | { heading: string; notes: string[] };
 
 const render = (intro: string[], sections: Section[], outro: string[]) => {
@@ -49,6 +60,13 @@ const render = (intro: string[], sections: Section[], outro: string[]) => {
             ? `<div><a href="${escapeHtml(l.href)}">${escapeHtml(l.label)}</a></div>`
             : `<div>${escapeHtml(l.label)}：${escapeHtml(l.value)}</div>`
         );
+        // 道順（リンクの直下に番号付きで）
+        if (l.steps && l.steps.length > 0) {
+          l.steps.forEach((step, i) => text.push(`　${i + 1}. ${step}`));
+          html.push(
+            `<ol style="margin:4px 0 0;padding-left:1.6em">\n${l.steps.map((s) => `<li>${escapeHtml(s)}</li>`).join("\n")}\n</ol>`
+          );
+        }
       }
     } else {
       for (const n of s.notes) {
@@ -66,6 +84,7 @@ const render = (intro: string[], sections: Section[], outro: string[]) => {
 export const buildApplicantMail = (r: Reservation, venue: Venue): Mail => {
   const address = venue.address.trim();
   const accessUrl = safeUrl(venue.accessUrl);
+  const steps = parseSteps((venue.steps ?? []).join("\n"));
   const { text, html } = render(
     [
       `${r.name} 様`,
@@ -98,8 +117,8 @@ export const buildApplicantMail = (r: Reservation, venue: Venue): Mail => {
         lines: [
           { label: "会場住所", value: address || PENDING },
           accessUrl
-            ? { label: "会場までの行き方", value: "", href: accessUrl }
-            : { label: "会場までの行き方", value: PENDING },
+            ? { label: ACCESS_LABEL, value: "", href: accessUrl, steps }
+            : { label: ACCESS_LABEL, value: steps.length ? "" : PENDING, steps },
         ],
       },
       { heading: "備考・注意事項", notes: PAYMENT_NOTES },

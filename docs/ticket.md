@@ -36,7 +36,8 @@
 | 環境変数（サーバー専用。`NEXT_PUBLIC_` を付けない） | 内容 |
 |---|---|
 | `TICKET_1206_VENUE_ADDRESS` | 正確な会場住所（未設定ならメールでは「後日、改めてご案内いたします」） |
-| `TICKET_1206_ACCESS_URL` | 会場までの行き方（Dropbox 共有動画の URL）。HTML メールでは「会場までの行き方」のリンクテキストで表示 |
+| `TICKET_1206_ACCESS_URL` | 会場への行き方（Dropbox 共有動画の URL）。HTML メールでは「会場への行き方（動画あり）」のリンクテキストで表示 |
+| `TICKET_1206_ACCESS_STEPS` | 会場までの道順。1 行 1 手順（改行区切り）。メールではリンク直下に番号付きで表示（行頭の番号は外して振り直す）。**会場が特定できるため、公開リポジトリには書かない** |
 | `TICKET_FROM_EMAIL` | 送信元。**公開前に必ず `deddecay <ticket@deddecay.tokyo>` を設定する**。未設定なら `CONTACT_FROM_EMAIL` のアドレスに表示名 `deddecay` |
 
 ### 送信ドメイン（Resend）

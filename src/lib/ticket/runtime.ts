@@ -6,14 +6,15 @@
 //   ローカル（VERCEL_ENV なし）→ メモリ（再起動で消える）。TICKET_STORE=r2 で `ledger-local.json` を使う
 // 会場情報（サーバー専用の環境変数。NEXT_PUBLIC_ を付けない）:
 //   TICKET_1206_VENUE_ADDRESS  正確な会場住所
-//   TICKET_1206_ACCESS_URL     会場までの行き方（Dropbox 共有動画の URL）
+//   TICKET_1206_ACCESS_URL     会場への行き方（Dropbox 共有動画の URL）
+//   TICKET_1206_ACCESS_STEPS   会場までの道順（1 行 1 手順。番号は自動で振る）
 
 import "server-only";
 import { Resend } from "resend";
 import { getR2Client, R2Error, type R2Client } from "../fan-upload/r2";
 import { EVENT } from "./event";
 import { createMemoryStore, emptyLedger, ledgerKeyFor, parseLedger, type LedgerStore } from "./ledger";
-import { ticketFrom, type Mail, type Venue } from "./mail";
+import { parseSteps, ticketFrom, type Mail, type Venue } from "./mail";
 import { getDriveClient } from "../fan-upload/drive";
 import { sheetKeyFor, sheetNameFor, syncSheet } from "./sheet";
 
@@ -73,6 +74,7 @@ export const syncSheetSafely = async (store: LedgerStore): Promise<void> => {
 export const readVenue = (): Venue => ({
   address: process.env.TICKET_1206_VENUE_ADDRESS ?? "",
   accessUrl: process.env.TICKET_1206_ACCESS_URL ?? "",
+  steps: parseSteps(process.env.TICKET_1206_ACCESS_STEPS),
 });
 
 export const sendMail = async (to: string, mail: Mail): Promise<boolean> => {
