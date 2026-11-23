@@ -7,7 +7,7 @@ export const EVENT = {
   id: "2026-12-06",
   dateLabel: "2026年12月6日（日）",
   shortLabel: "12月6日 フロアライブ",
-  title: "deddecay 手作りフロアライブ",
+  title: "deddecay 手創りフロアライブ",
   open: "18:00",
   start: "18:30",
   publicArea: "東京都世田谷区某所（小田急線沿線）",
