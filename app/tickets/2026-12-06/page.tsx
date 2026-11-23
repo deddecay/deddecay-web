@@ -8,9 +8,27 @@ import { EVENT } from "@/src/lib/ticket/event";
 import { summarize } from "@/src/lib/ticket/ledger";
 import { getLedgerStore } from "@/src/lib/ticket/runtime";
 
+// SNS で共有したときの画像は、フライヤーの写真部分を 1200×630 に切り出したもの
+const OG_TITLE = `${EVENT.shortLabel} チケット申し込み | deddecay`;
+const OG_IMAGE = "/og/og-ticket-1206.jpg";
+
 export const metadata: Metadata = {
-  title: `${EVENT.shortLabel} チケット申し込み | deddecay`,
+  title: OG_TITLE,
   robots: { index: false, follow: false },
+  openGraph: {
+    title: OG_TITLE,
+    description: `${EVENT.title} ${EVENT.dateLabel}`,
+    url: "https://deddecay.tokyo/tickets/2026-12-06",
+    siteName: "deddecay",
+    type: "website",
+    images: [{ url: OG_IMAGE, width: 1200, height: 630 }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: OG_TITLE,
+    description: `${EVENT.title} ${EVENT.dateLabel}`,
+    images: [OG_IMAGE],
+  },
 };
 
 // 残席の取得。失敗したら null（フォームは出さず、準備中と表示する）
