@@ -16,7 +16,7 @@ export const EVENT = {
   priceLabel: "2,000円／名（ドリンク込み）",
   pagePriceLabel: "2,000円（ドリンク込み）",
   payment: "当日会場払い",
-  capacity: 50,
+  capacity: 55,
   maxPerOrder: 5,
 } as const;
 
