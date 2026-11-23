@@ -29,9 +29,13 @@ const labelStyle =
 const andMoreStyle =
   "text-[10px] tracking-[0.25em] text-white/55 hover:text-white/85 active:text-white/65 transition-colors duration-150";
 
-// contact パネルは他より高さが必要（チケット申し込みリンクを出すときはその 1 行分を足す）
+// チケット申し込みリンク（CONTACT パネルの先頭）。問い合わせフォームより目立つよう、枠付きのボタンにする
+const ticketLinkStyle =
+  "group flex flex-col items-center gap-1 w-full border border-white/60 hover:border-white/90 hover:bg-white/[0.06] active:bg-white/[0.03] px-4 py-3 rounded-sm transition-colors duration-150";
+
+// contact パネルは他より高さが必要（チケット申し込みリンクを出すときはそのボタン分を足す）
 const panelMaxH = (section: Section, withTicketLink = false) =>
-  section === "contact" ? (withTicketLink ? "max-h-[560px]" : "max-h-[520px]") : "max-h-80 sm:max-h-96";
+  section === "contact" ? (withTicketLink ? "max-h-[600px]" : "max-h-[520px]") : "max-h-80 sm:max-h-96";
 
 // ── Types ────────────────────────────────────────────
 
@@ -286,9 +290,14 @@ export default function NavMenu({ newsItems, liveItems, biography, discographyIt
           <>
             {/* 12/6 フロアライブ チケット申し込み — 通常の問い合わせ種別とは独立した導線（公開前は非表示） */}
             {showTicketLink && (
-              <div className="mt-5 flex justify-center">
-                <Link href={TICKET_PATH} className={andMoreStyle}>
-                  {EVENT.shortLabel} チケット申し込み
+              <div className="mt-5 px-1">
+                <Link href={TICKET_PATH} className={ticketLinkStyle}>
+                  <span className="text-[9px] tracking-[0.35em] text-white/55 group-hover:text-white/75 transition-colors duration-150">
+                    TICKET
+                  </span>
+                  <span className="text-[11px] tracking-[0.2em] text-white/90 group-hover:text-white transition-colors duration-150">
+                    {EVENT.shortLabel} チケット申し込み<span aria-hidden="true" className="ml-1.5">→</span>
+                  </span>
                 </Link>
               </div>
             )}
