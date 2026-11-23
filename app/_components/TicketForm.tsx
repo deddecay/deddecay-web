@@ -35,8 +35,14 @@ export default function TicketForm({ maxTickets: initialMax }: { maxTickets: num
   const [mailSent, setMailSent] = useState(true);
   const [doneTickets, setDoneTickets] = useState(0);
 
+  // 完売表示。残席が戻れば（定員の変更・キャンセル）この表示ごと消えてフォームに戻る
   if (maxTickets <= 0 && step !== "complete") {
-    return <p className="text-xs text-white/75 leading-relaxed">{SOLD_OUT}</p>;
+    return (
+      <div className="flex flex-col gap-2">
+        <p className="text-sm tracking-[0.15em] font-bold text-red-500">Thank you SOLD OUT!!</p>
+        <p className="text-xs text-white/75 leading-relaxed">{SOLD_OUT}</p>
+      </div>
+    );
   }
 
   const isReady = name.trim() !== "" && isValidEmail(email.trim()) && tickets >= 1 && tickets <= maxTickets;
