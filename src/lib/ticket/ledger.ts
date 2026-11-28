@@ -164,6 +164,47 @@ export const cancelReservation = async (store: LedgerStore, id: string, maxAttem
   return { status: "conflict" };
 };
 
+// 本人のキャンセル手続き（一部キャンセル対応）。cancel 枚を減らし、0 枚になれば予約ごと取り消す。
+// expected: 手続きページを開いたときの枚数。今の枚数と違えば（別の画面で先に手続き済みなど）何もしない
+export type ReduceResult =
+  | { status: "cancelled"; before: Reservation }
+  | { status: "reduced"; before: Reservation; after: Reservation }
+  | { status: "not_found" }
+  | { status: "changed"; current: Reservation }
+  | { status: "invalid" }
+  | { status: "conflict" };
+
+export const reduceReservation = async (
+  store: LedgerStore,
+  id: string,
+  cancel: number,
+  expected: number,
+  maxAttempts = 8
+): Promise<ReduceResult> => {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const { ledger, etag } = await store.read();
+    const target = ledger.reservations.find((r) => r.id === id);
+    if (!target) return { status: "not_found" };
+    if (target.tickets !== expected) return { status: "changed", current: target };
+    if (!Number.isInteger(cancel) || cancel < 1 || cancel > target.tickets) return { status: "invalid" };
+    const after: Reservation | null = cancel === target.tickets ? null : { ...target, tickets: target.tickets - cancel };
+    const next: Ledger = {
+      ...ledger,
+      reservations: after
+        ? ledger.reservations.map((r) => (r.id === id ? after : r))
+        : ledger.reservations.filter((r) => r.id !== id),
+    };
+    if (await store.write(next, etag)) {
+      return after ? { status: "reduced", before: target, after } : { status: "cancelled", before: target };
+    }
+    await sleep(20 + 10 * attempt);
+  }
+  return { status: "conflict" };
+};
+
+export const findByEmail = (ledger: Ledger, email: string): Reservation | undefined =>
+  ledger.reservations.find((r) => normalizeEmail(r.email) === normalizeEmail(email));
+
 const csvCell = (v: string | number): string => {
   let s = String(v);
   // スプレッドシートで数式として実行されないように（CSV インジェクション対策）

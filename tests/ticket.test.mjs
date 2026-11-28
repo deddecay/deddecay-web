@@ -435,3 +435,81 @@ test("mail: 送信元は TICKET_FROM_EMAIL、無ければ CONTACT_FROM_EMAIL の
   assert.equal(ticketFrom({ CONTACT_FROM_EMAIL: "noreply@d.tokyo" }), "deddecay <noreply@d.tokyo>");
   assert.equal(ticketFrom({}), "");
 });
+
+// ── 本人キャンセル（確認リンク・一部キャンセル） ─────────────────
+import { reduceReservation, findByEmail } from "../src/lib/ticket/ledger.ts";
+import { createCancelToken, verifyCancelToken, looksLikeCancel, cancelLinkEnabled } from "../src/lib/ticket/cancel-link.ts";
+import { buildCancelMail as cancelMail2, buildCancelOperatorMail as cancelOpMail2, buildCancelLinkMail } from "../src/lib/ticket/mail.ts";
+
+const SECRET_ENV = { TICKET_OPS_SECRET: "x".repeat(40) };
+
+test("cancel link: 正しいトークンだけ通す（改ざん・別イベント・期限切れ・鍵なしは拒否）", () => {
+  const t = createCancelToken("2026-12-06", "abcd1234-ef", SECRET_ENV, 2_000_000_000);
+  assert.equal(verifyCancelToken("2026-12-06", t, SECRET_ENV, 1_900_000_000), "abcd1234-ef");
+  assert.equal(verifyCancelToken("2026-12-07", t, SECRET_ENV, 1_900_000_000), null);
+  assert.equal(verifyCancelToken("2026-12-06", t, SECRET_ENV, 2_000_000_001), null);
+  assert.equal(verifyCancelToken("2026-12-06", t, { TICKET_OPS_SECRET: "y".repeat(40) }, 1_900_000_000), null);
+  assert.equal(verifyCancelToken("2026-12-06", t.replace("abcd1234-ef", "abcd1234-eg"), SECRET_ENV, 1_900_000_000), null);
+  const forged = t.replace(".2000000000.", ".2100000000.");
+  assert.equal(verifyCancelToken("2026-12-06", forged, SECRET_ENV, 1_900_000_000), null);
+  assert.equal(verifyCancelToken("2026-12-06", 123, SECRET_ENV), null);
+  assert.equal(createCancelToken("2026-12-06", "abcd1234-ef", { TICKET_OPS_SECRET: "short" }), null);
+  assert.equal(cancelLinkEnabled({}), false);
+});
+
+test("looksLikeCancel: キャンセル・行けなくなった・減らしたい等を拾い、普通の質問は拾わない", () => {
+  for (const s of ["キャンセルお願いします", "当日行けなくなりました", "1枚減らしたいです", "参加できなくなりました", "予約を取り消したい"]) {
+    assert.equal(looksLikeCancel("チケットについて", s), true, s);
+  }
+  assert.equal(looksLikeCancel("チケットについて", "駐車場はありますか？"), false);
+});
+
+test("reduceReservation: 一部キャンセルで枚数が減り、全部なら予約ごと消える。枚数が変わっていれば何もしない", async () => {
+  const store = createMemoryStore();
+  await reserve(store, app(1, 3), OPTS);
+  const { ledger } = await store.read();
+  const id = ledger.reservations[0].id;
+  assert.equal(findByEmail(ledger, "USER1@example.com ")?.id, id);
+
+  assert.equal((await reduceReservation(store, id, 4, 3)).status, "invalid");
+  assert.equal((await reduceReservation(store, id, 1, 2)).status, "changed");
+  const r1 = await reduceReservation(store, id, 1, 3);
+  assert.equal(r1.status, "reduced");
+  assert.equal(r1.after.tickets, 2);
+  assert.equal(summarize((await store.read()).ledger, 50).reserved, 2);
+  // 同じ操作の再送（expected=3 のまま）は二重に減らさない
+  assert.equal((await reduceReservation(store, id, 1, 3)).status, "changed");
+  const r2 = await reduceReservation(store, id, 2, 2);
+  assert.equal(r2.status, "cancelled");
+  assert.equal((await store.read()).ledger.reservations.length, 0);
+  assert.equal((await reduceReservation(store, id, 1, 2)).status, "not_found");
+});
+
+const R3 = { id: "res-0000-0001", requestId: rid(1), name: "山田", email: "y@example.com", tickets: 3, createdAt: "2026-11-22T00:00:00Z" };
+
+test("cancel mail: 一部キャンセルは件名・変更後の枚数と金額を含む。全部キャンセルは従来どおり", () => {
+  const p = cancelMail2(R3, { cancelled: 1, kept: 2 });
+  assert.match(p.subject, /一部キャンセル/);
+  assert.match(p.text, /キャンセル枚数：1枚/);
+  assert.match(p.text, /変更後の枚数：2枚/);
+  assert.match(p.text, /4,000円/);
+  const f = cancelMail2(R3);
+  assert.doesNotMatch(f.subject, /一部/);
+  assert.match(f.text, /キャンセル枚数：3枚/);
+});
+
+test("cancel operator mail: 本人手続きの旨と枚数の変化を含む", () => {
+  const m = cancelOpMail2(R3, { reserved: 50, remaining: 5, capacity: 55 }, { applicantMailOk: true, via: "self" }, { cancelled: 1, kept: 2 });
+  assert.match(m.text, /本人がキャンセル手続きページから手続きしました/);
+  assert.match(m.text, /✓ 申込者（y@example.com）へキャンセルのお知らせを送信しました。/);
+  assert.match(m.text, /3枚 → 2枚/);
+  assert.match(m.subject, /一部キャンセル 山田 様 1枚（残席 5）/);
+});
+
+test("cancel link mail: 手続きリンクを含み、開くだけではキャンセルされない旨を書く。会場情報は含まない", () => {
+  const m = buildCancelLinkMail(R3, "https://deddecay.tokyo/tickets/2026-12-06/cancel?t=abc");
+  assert.match(m.text, /https:\/\/deddecay\.tokyo\/tickets\/2026-12-06\/cancel\?t=abc/);
+  assert.match(m.html, /href="https:\/\/deddecay\.tokyo/);
+  assert.match(m.text, /開いただけではキャンセルされません/);
+  assert.doesNotMatch(m.text, /会場住所/);
+});

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Resend } from "resend";
+import { handleTicketContact } from "@/src/lib/ticket/contact-auto";
 
 const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 
@@ -37,7 +38,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "サーバー設定エラー" }, { status: 500 });
   }
 
+  // チケット関連: 予約の照合とキャンセル手続きリンクの自動送信。結果は運営宛てメールの先頭に入れて報告する
+  let autoReport: string[] = [];
+  if (category === "TICKET") {
+    try {
+      autoReport = await handleTicketContact({
+        email, subject, message,
+        origin: process.env.VERCEL_ENV === "production" ? "https://deddecay.tokyo" : req.nextUrl.origin,
+      });
+    } catch (err) {
+      console.error("[contact] ticket auto handling failed:", err);
+      autoReport = ["⚠【自動処理】予約の照合中にエラーが起きました。手動で確認してください。", ""];
+    }
+  }
+
   const emailText = [
+    ...autoReport,
     `種別: ${category}`,
     `お名前: ${name}`,
     `メールアドレス: ${email}`,
@@ -52,7 +68,7 @@ export async function POST(req: NextRequest) {
       to,
       from,
       replyTo: email,
-      subject: `[${category}] ${subject}`,
+      subject: `[${category}]${autoReport.some((l) => l.includes("手続きのリンクを送信")) ? "[自動:キャンセル案内済]" : ""} ${subject}`,
       text: emailText,
     });
 

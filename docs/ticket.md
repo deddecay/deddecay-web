@@ -105,6 +105,18 @@ node --env-file=$E scripts/tickets.mjs sheet                     # 集計表だ�
 - 運用 API ができる前に取り消した人へは `notify-cancel <受付ID> --name 名前 --email アドレス --tickets 枚数 --yes` でお知らせだけ送れる（台帳は変更しない）
 - Preview の台帳は `--stage preview`（運用 API の送り先は `TICKET_OPS_URL` に Preview の URL を入れる）
 
+### 本人によるキャンセル（CONTACT からの自動処理）
+
+CONTACT の「チケット関連」に届いた問い合わせは、送信前にサーバーで自動処理し、その結果を運営宛ての問い合わせメールの先頭に【自動処理】として書く。
+
+1. 件名・本文が「キャンセル／行けなくなった／減らしたい」などを含み、送信者のアドレスが予約と一致したら、**予約のアドレスへ**キャンセル手続きのリンクを送る（件名に `[自動:キャンセル案内済]` が付く）
+2. 本人がリンク（`/tickets/2026-12-06/cancel?t=…`）を開き、キャンセルする枚数を選んで確定 → 台帳の更新（一部キャンセルなら枚数を減らす）、申込者へ完了メール、運営へ完了通知、集計表の書き直しまで自動
+3. 予約が見つからないキャンセル連絡は【自動処理】で「見つからない」と書くだけ（手動対応）。キャンセル以外の問い合わせでも、予約があれば【参考】として予約内容を書く
+
+- リンクは TICKET_OPS_SECRET から導いた鍵で署名する（新しい環境変数は不要）。有効期限は公演の翌日 0 時まで。予約のアドレスにだけ送るので、なりすましでは取り消せない
+- 開いただけではキャンセルされない。同じ操作の再送や別画面での二重操作は、開いたときの枚数と違えば拒否する
+- ローカル開発では、作ったリンクをサーバーログに出す（本番・Preview では出さない）
+
 ### 運用 API（本番サーバー・合言葉つき）
 
 | API | 内容 |
@@ -138,5 +150,8 @@ node --env-file=$E scripts/tickets.mjs sheet                     # 集計表だ�
 | `app/api/tickets/2026-12-06/route.ts` | 受付 API |
 | `app/api/tickets/2026-12-06/cancel/route.ts` / `sync/route.ts` | 運用 API（キャンセル・お知らせメール・集計表） |
 | `src/lib/ticket/ops.ts` | 運用 API の合言葉チェック |
+| `src/lib/ticket/cancel-link.ts` / `contact-auto.ts` | キャンセル手続きリンクの署名・キャンセル連絡の判定／CONTACT の自動処理 |
+| `app/tickets/2026-12-06/cancel/page.tsx` / `app/_components/TicketCancelForm.tsx` / `app/api/tickets/2026-12-06/self-cancel/route.ts` | 本人のキャンセル手続き（一部キャンセル対応） |
+| `app/api/contact/route.ts` | CONTACT（チケット関連は自動処理の結果を運営宛てメールに追記） |
 | `scripts/tickets.mjs` | 運用ツール |
 | `tests/ticket.test.mjs` | テスト |

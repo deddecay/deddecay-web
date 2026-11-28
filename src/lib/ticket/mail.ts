@@ -165,13 +165,19 @@ export const buildOperatorMail = (
 
 export const CANCEL_SUBJECT = `【deddecay】${EVENT.shortLabel} チケットキャンセル受付完了`;
 
-// 申込者宛て：キャンセルを承った連絡（会場情報は載せない）
-export const buildCancelMail = (r: Reservation): Mail => {
+// 一部キャンセルのときの内訳。cancelled 枚を取り消し、kept 枚が残る（kept=0 なら全部キャンセル）
+export type CancelChange = { cancelled: number; kept: number };
+
+const fullChange = (r: Reservation): CancelChange => ({ cancelled: r.tickets, kept: 0 });
+
+// 申込者宛て：キャンセルを承った連絡（会場情報は載せない）。r はキャンセル前の予約
+export const buildCancelMail = (r: Reservation, change: CancelChange = fullChange(r)): Mail => {
+  const partial = change.kept > 0;
   const { text, html } = render(
     [
       `${r.name} 様`,
       "",
-      `deddecay ${EVENT.shortLabel}のチケットについて、以下の内容でキャンセルを承りました。`,
+      `deddecay ${EVENT.shortLabel}のチケットについて、以下の内容で${partial ? "一部" : ""}キャンセルを承りました。`,
     ],
     [
       {
@@ -180,35 +186,46 @@ export const buildCancelMail = (r: Reservation): Mail => {
           { label: "公演タイトル", value: EVENT.title },
           { label: "開催日", value: EVENT.dateLabel },
           { label: "お名前", value: r.name },
-          { label: "キャンセル枚数", value: `${r.tickets}枚` },
-          { label: "金額", value: `${formatYen(totalPrice(r.tickets))}（当日払いのため、お支払いは発生しません）` },
+          { label: "キャンセル枚数", value: `${change.cancelled}枚` },
+          ...(partial
+            ? [
+                { label: "変更後の枚数", value: `${change.kept}枚` },
+                { label: "変更後の合計金額", value: `${formatYen(totalPrice(change.kept))}（当日、会場にてお支払いください）` },
+              ]
+            : [{ label: "金額", value: `${formatYen(totalPrice(change.cancelled))}（当日払いのため、お支払いは発生しません）` }]),
         ],
       },
       {
         heading: "備考",
         notes: [
+          ...(partial ? ["会場のご案内は、先にお送りした受付完了メールをご覧ください。"] : []),
           "お心当たりのない場合や、ご不明な点がございましたら、公式サイトCONTACTの『チケット関連』よりご連絡ください。",
         ],
       },
     ],
-    ["またお会いできる機会を楽しみにしております。", "", "deddecay", "https://deddecay.tokyo"]
+    [partial ? "当日お会いできるのを楽しみにしております。" : "またお会いできる機会を楽しみにしております。", "", "deddecay", "https://deddecay.tokyo"]
   );
-  return { subject: CANCEL_SUBJECT, text, html };
+  return { subject: partial ? PARTIAL_CANCEL_SUBJECT : CANCEL_SUBJECT, text, html };
 };
 
-// 運営宛て：キャンセルの記録
+export const PARTIAL_CANCEL_SUBJECT = `【deddecay】${EVENT.shortLabel} チケット枚数変更（一部キャンセル）受付完了`;
+
+// 運営宛て：キャンセルの記録。r はキャンセル前の予約。via=self は本人が手続きページから操作したもの
 export const buildCancelOperatorMail = (
   r: Reservation,
   summary: { reserved: number; remaining: number; capacity: number },
-  status: { applicantMailOk: boolean }
+  status: { applicantMailOk: boolean; via?: "ops" | "self" },
+  change: CancelChange = fullChange(r)
 ): Mail => {
+  const partial = change.kept > 0;
   const lines = [
+    ...(status.via === "self" ? ["本人がキャンセル手続きページから手続きしました（台帳・集計表は自動で更新済み）。", ""] : []),
     ...(status.applicantMailOk
       ? [`✓ 申込者（${r.email}）へキャンセルのお知らせを送信しました。`, ""]
       : ["⚠ 申込者へのキャンセルのお知らせメールの送信に失敗しました。手動で連絡してください。", ""]),
     `お名前: ${r.name}`,
     `メールアドレス: ${r.email}`,
-    `キャンセル枚数: ${r.tickets}枚`,
+    `キャンセル枚数: ${change.cancelled}枚${partial ? `（${r.tickets}枚 → ${change.kept}枚）` : ""}`,
     `受付日時: ${new Date(r.createdAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}`,
     `受付ID: ${r.id}`,
     "",
@@ -217,11 +234,49 @@ export const buildCancelOperatorMail = (
   ];
   const text = lines.join("\n");
   return {
-    subject: `[TICKET 12/6] キャンセル ${r.name} 様 ${r.tickets}枚（残席 ${summary.remaining}）`,
+    subject: `[TICKET 12/6] ${partial ? "一部キャンセル" : "キャンセル"} ${r.name} 様 ${change.cancelled}枚（残席 ${summary.remaining}）`,
     text,
     html: `<pre style="font-family:sans-serif;white-space:pre-wrap">${escapeHtml(text)}</pre>`,
     replyTo: r.email,
   };
+};
+
+export const CANCEL_LINK_SUBJECT = `【deddecay】${EVENT.shortLabel} チケットキャンセルのお手続き`;
+
+// 申込者宛て：CONTACT からキャンセルの連絡が来たときに送る、手続きページへのリンク
+export const buildCancelLinkMail = (r: Reservation, url: string): Mail => {
+  const href = safeUrl(url);
+  const { text, html } = render(
+    [
+      `${r.name} 様`,
+      "",
+      "公式サイトCONTACTより、チケットのキャンセルに関するご連絡をいただきました。",
+      "下のリンクから、キャンセルする枚数を選んでお手続きください。",
+    ],
+    [
+      {
+        heading: "ご予約内容",
+        lines: [
+          { label: "公演タイトル", value: EVENT.title },
+          { label: "開催日", value: EVENT.dateLabel },
+          { label: "お名前", value: r.name },
+          { label: "チケット枚数", value: `${r.tickets}枚`, blankAfter: true },
+          { label: "キャンセル手続きページ", value: "", href },
+        ],
+      },
+      {
+        heading: "備考",
+        notes: [
+          "リンクを開いただけではキャンセルされません。手続きページで枚数を選び、ボタンを押すと完了します。",
+          "手続きが完了すると、キャンセル受付完了のメールをお送りします。",
+          "お心当たりのない場合は、このメールは破棄してください（ご予約はそのまま有効です）。",
+          "リンクの有効期限は公演当日までです。",
+        ],
+      },
+    ],
+    ["deddecay", "https://deddecay.tokyo"]
+  );
+  return { subject: CANCEL_LINK_SUBJECT, text, html };
 };
 
 // 送信元: TICKET_FROM_EMAIL があればそれ、無ければ CONTACT_FROM_EMAIL のアドレス部分に表示名 "deddecay"
