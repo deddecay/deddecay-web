@@ -140,7 +140,7 @@ export const buildOperatorMail = (
 ): Mail => {
   const lines = [
     ...(status.applicantMailOk
-      ? []
+      ? [`✓ 申込者（${r.email}）へ自動返信を送信しました。`, ""]
       : ["⚠ 申込者への自動返信の送信に失敗しました。会場案内を手動で送ってください。", ""]),
     `お名前: ${r.name}`,
     `メールアドレス: ${r.email}`,
@@ -204,7 +204,7 @@ export const buildCancelOperatorMail = (
 ): Mail => {
   const lines = [
     ...(status.applicantMailOk
-      ? []
+      ? [`✓ 申込者（${r.email}）へキャンセルのお知らせを送信しました。`, ""]
       : ["⚠ 申込者へのキャンセルのお知らせメールの送信に失敗しました。手動で連絡してください。", ""]),
     `お名前: ${r.name}`,
     `メールアドレス: ${r.email}`,

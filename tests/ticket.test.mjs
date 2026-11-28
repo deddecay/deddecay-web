@@ -339,6 +339,10 @@ test("mail: 運営通知は申込内容と残席、自動返信の失敗を含�
   assert.ok(m.text.includes("残席: 40"));
   assert.ok(m.text.includes("自動返信の送信に失敗"));
   assert.equal(m.replyTo, "taro@example.com");
+  // 成功したときは送信済みと明記する（運営通知を見れば申込者に届いたかがわかる）
+  const ok = buildOperatorMail(reservation, { reserved: 10, remaining: 40, capacity: 50 }, { applicantMailOk: true });
+  assert.ok(ok.text.startsWith("✓ 申込者（taro@example.com）へ自動返信を送信しました"));
+  assert.ok(!m.text.includes("送信しました"));
 });
 
 // ── キャンセルのメール ─────────────────────────────────
@@ -363,8 +367,10 @@ test("cancel mail: 運営通知は残席と、申込者への送信失敗を含�
   assert.match(ok.subject, /キャンセル/);
   assert.ok(ok.text.includes("残席: 5"));
   assert.ok(!ok.text.includes("失敗"));
+  assert.ok(ok.text.startsWith("✓ 申込者（hana@example.com）へキャンセルのお知らせを送信しました"));
   const ng = buildCancelOperatorMail(r, { reserved: 50, remaining: 5, capacity: 55 }, { applicantMailOk: false });
   assert.ok(ng.text.includes("キャンセルのお知らせメールの送信に失敗"));
+  assert.ok(!ng.text.includes("送信しました"));
 });
 
 // ── 運用 API の合言葉 ─────────────────────────────────
