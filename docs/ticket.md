@@ -75,26 +75,46 @@ Dropbox の共有設定（2026-11-22 確認）：ログインなしで再生で�
 
 ## 運用（一覧・スプレッドシート・キャンセル）
 
-`scripts/tickets.mjs` を使う。R2（と集計表を更新するなら `GOOGLE_OAUTH_*`）の認証情報を環境変数で渡す。
+`scripts/tickets.mjs` を使う。認証情報は運用ファイル `/Users/hayato/site/secrets/deddecay/tickets-ops.env`（リポジトリの外・権限 600）に置き、`--env-file` で渡す。
 
-> ⚠ `vercel env pull` では取り出せない（2026-11-22 確認）。R2・Google の値は Vercel で「Sensitive」扱いのため、空で取り出される。
-> R2 の運用用 API トークン（対象バケットのみ・Object Read & Write）を Cloudflare で別に発行し、リポジトリの外のファイル（権限 600）に置いて使う。
+| 運用ファイルの行 | 内容 |
+|---|---|
+| `R2_ACCOUNT_ID` / `R2_BUCKET` | Cloudflare R2 のアカウント ID とバケット名（`deddecay-fan-upload`） |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | R2 の運用用 API トークン（R2 → Manage API Tokens。対象バケットのみ・Object Read & Write）。2026-11-28 発行 |
+| `TICKET_OPS_SECRET` | 運用 API の合言葉。**Vercel の本番環境変数にも同じ値**を置く（32 文字以上） |
+
+> ⚠ `vercel env pull` では取り出せない（2026-11-22 確認）。R2・Google・Resend の値は Vercel で「Sensitive」扱いのため、空で取り出される。
+> そのため、メール送信と集計表の更新は本番サーバーの運用 API（合言葉つき）に頼む。
 
 **人数のリセット（本番の受付開始前など）**：Cloudflare ダッシュボード → R2 → 該当バケット → `tickets/2026-12-06/ledger.json` を削除すると 0 件に戻る。
 集計表は次の申し込み（または `sheet`）で書き直される。
 
 ```bash
-node --env-file=/tmp/dd-prod.env scripts/tickets.mjs list
-node --env-file=/tmp/dd-prod.env scripts/tickets.mjs csv
-node --env-file=/tmp/dd-prod.env scripts/tickets.mjs cancel <受付ID>
-node --env-file=/tmp/dd-prod.env scripts/tickets.mjs cancel <受付ID> --yes
-rm /tmp/dd-prod.env
+E=/Users/hayato/site/secrets/deddecay/tickets-ops.env
+node --env-file=$E scripts/tickets.mjs list
+node --env-file=$E scripts/tickets.mjs csv
+node --env-file=$E scripts/tickets.mjs cancel <受付ID>           # 確認だけ
+node --env-file=$E scripts/tickets.mjs cancel <受付ID> --yes     # 取り消し＋お知らせメール＋運営通知＋集計表
+node --env-file=$E scripts/tickets.mjs sheet                     # 集計表だけ書き直す
 ```
 
 - `csv` は UTF-8（BOM 付き）の CSV を書き出す。Excel でそのまま開ける。Google スプレッドシートは「ファイル → インポート」で読み込む
 - CSV には個人情報が入る。共有範囲に注意し、リポジトリに入れない（`tickets-*.csv` は .gitignore 済み）
-- `cancel` は `--yes` なしなら確認だけ。取り消すと席が戻り、同じメールアドレスで申し込み直せる。申込者への連絡は別途
-- Preview の台帳は `--stage preview`
+- `cancel` は `--yes` なしなら確認だけ。`TICKET_OPS_SECRET` があれば本番サーバーで取り消し、申込者へ「【deddecay】12月6日 フロアライブ チケットキャンセル受付完了」を送り、運営に通知し、集計表を書き直す。席が戻り、同じメールアドレスで申し込み直せる
+- `TICKET_OPS_SECRET` が無いときは R2 を直接書き換えるだけ（メール・集計表は手動）
+- 運用 API ができる前に取り消した人へは `notify-cancel <受付ID> --name 名前 --email アドレス --tickets 枚数 --yes` でお知らせだけ送れる（台帳は変更しない）
+- Preview の台帳は `--stage preview`（運用 API の送り先は `TICKET_OPS_URL` に Preview の URL を入れる）
+
+### 運用 API（本番サーバー・合言葉つき）
+
+| API | 内容 |
+|---|---|
+| `POST /api/tickets/2026-12-06/cancel` `{ id }` | 取り消し → 申込者へキャンセルのお知らせ → 運営通知 → 集計表を書き直す |
+| `POST /api/tickets/2026-12-06/cancel` `{ id, notifyOnly: { name, email, tickets } }` | 台帳は変えず、お知らせメールだけ送る |
+| `POST /api/tickets/2026-12-06/sync` | 集計表を台帳の全件で書き直す |
+
+- `Authorization: Bearer <TICKET_OPS_SECRET>` が一致しなければ 404（存在を知らせない）。Vercel に `TICKET_OPS_SECRET` が無ければ常に 404
+- 合言葉の作り方：`openssl rand -hex 32`。漏れたら Vercel と運用ファイルの両方で作り直して再デプロイ
 
 ## 公開前チェックリスト
 
@@ -116,5 +136,7 @@ rm /tmp/dd-prod.env
 | `src/lib/ticket/runtime.ts` | 保存先の選択・メール送信（サーバー専用） |
 | `app/tickets/2026-12-06/page.tsx` / `app/_components/TicketForm.tsx` | フォーム画面 |
 | `app/api/tickets/2026-12-06/route.ts` | 受付 API |
+| `app/api/tickets/2026-12-06/cancel/route.ts` / `sync/route.ts` | 運用 API（キャンセル・お知らせメール・集計表） |
+| `src/lib/ticket/ops.ts` | 運用 API の合言葉チェック |
 | `scripts/tickets.mjs` | 運用ツール |
 | `tests/ticket.test.mjs` | テスト |

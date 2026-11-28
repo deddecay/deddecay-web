@@ -161,6 +161,69 @@ export const buildOperatorMail = (
   };
 };
 
+// ── キャンセル ─────────────────────────────────────────
+
+export const CANCEL_SUBJECT = `【deddecay】${EVENT.shortLabel} チケットキャンセル受付完了`;
+
+// 申込者宛て：キャンセルを承った連絡（会場情報は載せない）
+export const buildCancelMail = (r: Reservation): Mail => {
+  const { text, html } = render(
+    [
+      `${r.name} 様`,
+      "",
+      `deddecay ${EVENT.shortLabel}のチケットについて、以下の内容でキャンセルを承りました。`,
+    ],
+    [
+      {
+        heading: "キャンセル内容",
+        lines: [
+          { label: "公演タイトル", value: EVENT.title },
+          { label: "開催日", value: EVENT.dateLabel },
+          { label: "お名前", value: r.name },
+          { label: "キャンセル枚数", value: `${r.tickets}枚` },
+          { label: "金額", value: `${formatYen(totalPrice(r.tickets))}（当日払いのため、お支払いは発生しません）` },
+        ],
+      },
+      {
+        heading: "備考",
+        notes: [
+          "お心当たりのない場合や、ご不明な点がございましたら、公式サイトCONTACTの『チケット関連』よりご連絡ください。",
+        ],
+      },
+    ],
+    ["またお会いできる機会を楽しみにしております。", "", "deddecay", "https://deddecay.tokyo"]
+  );
+  return { subject: CANCEL_SUBJECT, text, html };
+};
+
+// 運営宛て：キャンセルの記録
+export const buildCancelOperatorMail = (
+  r: Reservation,
+  summary: { reserved: number; remaining: number; capacity: number },
+  status: { applicantMailOk: boolean }
+): Mail => {
+  const lines = [
+    ...(status.applicantMailOk
+      ? []
+      : ["⚠ 申込者へのキャンセルのお知らせメールの送信に失敗しました。手動で連絡してください。", ""]),
+    `お名前: ${r.name}`,
+    `メールアドレス: ${r.email}`,
+    `キャンセル枚数: ${r.tickets}枚`,
+    `受付日時: ${new Date(r.createdAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}`,
+    `受付ID: ${r.id}`,
+    "",
+    `受付済み: ${summary.reserved} / ${summary.capacity}枚`,
+    `残席: ${summary.remaining}`,
+  ];
+  const text = lines.join("\n");
+  return {
+    subject: `[TICKET 12/6] キャンセル ${r.name} 様 ${r.tickets}枚（残席 ${summary.remaining}）`,
+    text,
+    html: `<pre style="font-family:sans-serif;white-space:pre-wrap">${escapeHtml(text)}</pre>`,
+    replyTo: r.email,
+  };
+};
+
 // 送信元: TICKET_FROM_EMAIL があればそれ、無ければ CONTACT_FROM_EMAIL のアドレス部分に表示名 "deddecay"
 export const ticketFrom = (env: Record<string, string | undefined> = process.env): string => {
   const explicit = env.TICKET_FROM_EMAIL?.trim();

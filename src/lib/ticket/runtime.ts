@@ -16,7 +16,7 @@ import { EVENT } from "./event";
 import { createMemoryStore, emptyLedger, ledgerKeyFor, parseLedger, type LedgerStore } from "./ledger";
 import { parseSteps, ticketFrom, type Mail, type Venue } from "./mail";
 import { getDriveClient } from "../fan-upload/drive";
-import { sheetKeyFor, sheetNameFor, syncSheet } from "./sheet";
+import { sheetKeyFor, sheetNameFor, sheetUrl, syncSheet } from "./sheet";
 
 const ledgerKey = (): string => ledgerKeyFor(EVENT.id, process.env.VERCEL_ENV);
 
@@ -56,16 +56,22 @@ export const getLedgerStore = (): LedgerStore | null => {
 
 // 集計表（Google スプレッドシート）へ反映する。Google 連携（GOOGLE_OAUTH_*）が無い環境では何もしない。
 // 失敗しても受付には影響させない（ログだけ残し、次の申し込みか scripts/tickets.mjs sheet で追いつく）
-export const syncSheetSafely = async (store: LedgerStore): Promise<void> => {
+// 集計表を今すぐ書き直す（失敗は呼び出し側へ投げる）。Google 連携が無ければ null
+export const syncSheetNow = async (store: LedgerStore): Promise<{ rows: number; url: string } | null> => {
   const drive = getDriveClient();
-  if (!drive) return;
+  if (!drive) return null;
   const stage = process.env.VERCEL_ENV;
+  const r = await syncSheet(drive, store, {
+    sheetKey: sheetKeyFor(EVENT.id, stage),
+    sheetName: sheetNameFor(EVENT.shortLabel, stage),
+    pricePerTicket: EVENT.pricePerTicket,
+  });
+  return { rows: r.rows, url: sheetUrl(r.id) };
+};
+
+export const syncSheetSafely = async (store: LedgerStore): Promise<void> => {
   try {
-    await syncSheet(drive, store, {
-      sheetKey: sheetKeyFor(EVENT.id, stage),
-      sheetName: sheetNameFor(EVENT.shortLabel, stage),
-      pricePerTicket: EVENT.pricePerTicket,
-    });
+    await syncSheetNow(store);
   } catch (err) {
     console.error("[ticket] 集計表の反映に失敗しました:", err instanceof Error ? err.message : err);
   }

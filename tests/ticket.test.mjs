@@ -341,6 +341,48 @@ test("mail: 運営通知は申込内容と残席、自動返信の失敗を含�
   assert.equal(m.replyTo, "taro@example.com");
 });
 
+// ── キャンセルのメール ─────────────────────────────────
+
+import { buildCancelMail, buildCancelOperatorMail, CANCEL_SUBJECT } from "../src/lib/ticket/mail.ts";
+
+test("cancel mail: 申込者宛ては件名・宛名・公演・キャンセル枚数・問い合わせ先を含み、会場情報は含まない", () => {
+  const r = { id: "r9", requestId: rid(9), name: "山田 <花子>", email: "hana@example.com", tickets: 2, createdAt: "2026-11-23T13:05:53.000Z" };
+  const mail = buildCancelMail(r);
+  assert.equal(mail.subject, CANCEL_SUBJECT);
+  assert.match(mail.subject, /キャンセル/);
+  for (const s of ["山田 <花子> 様", EVENT.title, EVENT.dateLabel, "2枚", "4,000円", "チケット関連"]) {
+    assert.ok(mail.text.includes(s), s);
+  }
+  assert.ok(!/会場住所|会場への行き方/.test(mail.text));
+  assert.ok(mail.html.includes("山田 &lt;花子&gt;"));
+});
+
+test("cancel mail: 運営通知は残席と、申込者への送信失敗を含む", () => {
+  const r = { id: "r9", requestId: rid(9), name: "山田", email: "hana@example.com", tickets: 2, createdAt: "2026-11-23T13:05:53.000Z" };
+  const ok = buildCancelOperatorMail(r, { reserved: 50, remaining: 5, capacity: 55 }, { applicantMailOk: true });
+  assert.match(ok.subject, /キャンセル/);
+  assert.ok(ok.text.includes("残席: 5"));
+  assert.ok(!ok.text.includes("失敗"));
+  const ng = buildCancelOperatorMail(r, { reserved: 50, remaining: 5, capacity: 55 }, { applicantMailOk: false });
+  assert.ok(ng.text.includes("キャンセルのお知らせメールの送信に失敗"));
+});
+
+// ── 運用 API の合言葉 ─────────────────────────────────
+
+import { opsAuthorized } from "../src/lib/ticket/ops.ts";
+
+test("opsAuthorized: 合言葉が一致したときだけ通す。未設定・短すぎる合言葉では常に拒否", () => {
+  const secret = "s".repeat(40);
+  const env = { TICKET_OPS_SECRET: secret };
+  assert.equal(opsAuthorized(`Bearer ${secret}`, env), true);
+  assert.equal(opsAuthorized(`Bearer ${secret}x`, env), false);
+  assert.equal(opsAuthorized(secret, env), false);
+  assert.equal(opsAuthorized(null, env), false);
+  assert.equal(opsAuthorized("Bearer ", { TICKET_OPS_SECRET: "" }), false);
+  assert.equal(opsAuthorized("Bearer undefined", {}), false);
+  assert.equal(opsAuthorized("Bearer short", { TICKET_OPS_SECRET: "short" }), false);
+});
+
 // ── 運用（キャンセル・CSV・保存先） ───────────────────────
 
 test("cancelReservation: 受付 ID で取り消すと席が戻る。無い ID は not_found", async () => {

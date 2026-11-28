@@ -9,10 +9,15 @@
 //   node scripts/tickets.mjs list                       受付一覧と合計・残席
 //   node scripts/tickets.mjs csv [出力ファイル]          CSV（Excel / Google スプレッドシートで開ける。既定: tickets-2026-12-06.csv）
 //   node scripts/tickets.mjs cancel <受付ID>            取り消す内容を表示するだけ（変更しない）
-//   node scripts/tickets.mjs cancel <受付ID> --yes      取り消して席を戻す（集計表も更新）
+//   node scripts/tickets.mjs cancel <受付ID> --yes      取り消して席を戻す。TICKET_OPS_SECRET があれば本番サーバーで行い、
+//                                                      申込者へのキャンセルのお知らせ・運営通知・集計表の更新まで自動
+//   node scripts/tickets.mjs notify-cancel <受付ID> --name 名前 --email アドレス --tickets 枚数 [--yes]
+//                                                      取り消し済みの人にキャンセルのお知らせだけ送る（台帳は変更しない）
 //   node scripts/tickets.mjs sheet                      集計表（Google スプレッドシート）を台帳の内容で更新し、URL を表示
 // オプション:
 //   --stage production|preview|local   対象の台帳（既定 production）
+// 集計表の更新: 手元に GOOGLE_OAUTH_* があれば直接、無ければ TICKET_OPS_SECRET で本番サーバーの運用 API
+//   （POST /api/tickets/2026-12-06/sync）に頼む。Preview なら TICKET_OPS_URL に Preview の URL を入れる
 //
 // 申込者の個人情報を含むため、CSV は共有範囲に注意し、リポジトリに入れないこと（*.csv は .gitignore 済み）。
 
@@ -26,7 +31,9 @@ import { sheetKeyFor, sheetNameFor, sheetUrl, syncSheet } from "../src/lib/ticke
 const args = process.argv.slice(2);
 const stageIndex = args.indexOf("--stage");
 const stage = stageIndex >= 0 ? args[stageIndex + 1] : "production";
-const positional = args.filter((a, i) => !a.startsWith("--") && !(stageIndex >= 0 && i === stageIndex + 1));
+// 値を取るオプション（--stage / --name / --email / --tickets）の値は位置引数に数えない
+const VALUE_OPTS = new Set(["--stage", "--name", "--email", "--tickets"]);
+const positional = args.filter((a, i) => !a.startsWith("--") && !VALUE_OPTS.has(args[i - 1]));
 const [command, arg] = positional;
 
 const config = loadR2Config();
@@ -53,11 +60,59 @@ const store = {
   },
 };
 
-// 集計表（Google スプレッドシート）へ反映する。GOOGLE_OAUTH_* が無ければ何もしない
+// --name 値 のようなオプションの値
+const opt = (name) => {
+  const i = args.indexOf(name);
+  return i >= 0 ? args[i + 1] : undefined;
+};
+
+// 本番サーバーの運用 API（Google 連携・メール送信は本番サーバーにしか無いため、そちらに頼む）。
+// TICKET_OPS_SECRET（運用 API の合言葉）が必要。送り先は TICKET_OPS_URL、無ければ本番なら https://deddecay.tokyo
+const opsBase = () => {
+  const base = process.env.TICKET_OPS_URL ?? (stage === "production" ? "https://deddecay.tokyo" : "");
+  return process.env.TICKET_OPS_SECRET && base ? base.replace(/\/$/, "") : "";
+};
+
+const callOps = async (path, body) => {
+  const res = await fetch(`${opsBase()}/api/tickets/${EVENT.id}/${path}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${process.env.TICKET_OPS_SECRET}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body ?? {}),
+    signal: AbortSignal.timeout(60_000),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) {
+    // 合言葉の不一致（またはサーバー側が未設定・未反映）も 404 になる
+    console.error(`本番サーバーでの処理に失敗しました（${res.status}${data.error ? ` ${data.error}` : ""}）`);
+    process.exit(1);
+  }
+  return data;
+};
+
+const reportCancel = (data) => {
+  const r = data.reservation;
+  if (data.cancelled) console.log(`取り消しました: ${r.name} <${r.email}> ${r.tickets}枚。残席 ${data.remaining}`);
+  console.log(data.mailSent ? "申込者へキャンセルのお知らせを送りました" : "⚠ 申込者へのお知らせの送信に失敗しました。手動で連絡してください");
+  if (!data.operatorMailSent) console.log("⚠ 運営への通知の送信に失敗しました");
+  if (data.cancelled) {
+    console.log(data.sheet ? `集計表を更新しました（${data.sheet.rows}件）: ${data.sheet.url}` : `⚠ 集計表を更新できませんでした（${data.sheetError}）`);
+  }
+};
+
+const syncViaServer = async () => {
+  if (!opsBase()) {
+    console.log("（GOOGLE_OAUTH_* も TICKET_OPS_SECRET も未設定のため、集計表は更新していません）");
+    return;
+  }
+  const data = await callOps("sync");
+  console.log(`集計表を更新しました（${data.rows}件）: ${data.url}`);
+};
+
+// 集計表（Google スプレッドシート）へ反映する。手元に GOOGLE_OAUTH_* があれば直接、無ければ本番サーバー経由
 const syncToSheet = async () => {
   const driveConfig = loadDriveConfig();
   if (!driveConfig) {
-    console.log("（GOOGLE_OAUTH_* が未設定のため、集計表は更新していません）");
+    await syncViaServer();
     return;
   }
   const r = await syncSheet(new DriveClient(driveConfig), store, {
@@ -103,14 +158,45 @@ switch (command) {
       console.log("確認のみ（変更していません）。取り消すには --yes を付けて再実行してください");
       break;
     }
+    // 合言葉があれば本番サーバーで取り消す（取り消し・申込者へのお知らせ・運営通知・集計表をまとめて行う）
+    if (opsBase()) {
+      const data = await callOps("cancel", { id: arg });
+      reportCancel(data);
+      break;
+    }
     const result = await cancelReservation(store, arg);
     if (result.status !== "cancelled") {
       console.error(`取り消せませんでした: ${result.status}`);
       process.exit(1);
     }
     const after = summarize((await store.read()).ledger, EVENT.capacity);
-    console.log(`取り消しました。残席 ${after.remaining}（申込者への連絡は別途行ってください）`);
+    console.log(`取り消しました。残席 ${after.remaining}（TICKET_OPS_SECRET が無いため、申込者への連絡は別途行ってください）`);
     await syncToSheet();
+    break;
+  }
+  // 運用 API ができる前に取り消した人へ、キャンセルのお知らせだけを送る（台帳は変更しない）
+  case "notify-cancel": {
+    const name = opt("--name");
+    const email = opt("--email");
+    const tickets = Number(opt("--tickets"));
+    if (!arg || !name || !email || !tickets) {
+      console.error("使い方: node scripts/tickets.mjs notify-cancel <受付ID> --name 名前 --email アドレス --tickets 枚数 [--yes]");
+      process.exit(1);
+    }
+    if (ledger.reservations.some((r) => r.id === arg)) {
+      console.error(`受付ID ${arg} はまだ台帳にあります。取り消すなら cancel を使ってください`);
+      process.exit(1);
+    }
+    console.log(`送信先: ${name} <${email}> ${tickets}枚（キャンセルのお知らせ）`);
+    if (!args.includes("--yes")) {
+      console.log("確認のみ（送信していません）。送るには --yes を付けて再実行してください");
+      break;
+    }
+    if (!opsBase()) {
+      console.error("TICKET_OPS_SECRET が未設定です");
+      process.exit(1);
+    }
+    reportCancel(await callOps("cancel", { id: arg, notifyOnly: { name, email, tickets } }));
     break;
   }
   case "sheet": {
@@ -118,6 +204,8 @@ switch (command) {
     break;
   }
   default:
-    console.error("使い方: node scripts/tickets.mjs list | csv [file] | sheet | cancel <受付ID> [--yes]  [--stage production|preview|local]");
+    console.error(
+      "使い方: node scripts/tickets.mjs list | csv [file] | sheet | cancel <受付ID> [--yes] | notify-cancel <受付ID> --name --email --tickets [--yes]  [--stage production|preview|local]"
+    );
     process.exit(1);
 }
